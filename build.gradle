@@ -191,6 +191,11 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
+// Geometry tests construct BlockPos and codecs. Those classes live on the main compile
+// classpath. Extending the test configurations keeps the game from booting.
+configurations.testCompileClasspath.extendsFrom(configurations.compileClasspath)
+configurations.testRuntimeClasspath.extendsFrom(configurations.compileClasspath)
+
 // IDEA no longer automatically downloads sources/javadoc jars for dependencies, so we need to explicitly enable the behavior.
 idea {
     module {

@@ -1,6 +1,6 @@
 # Villager Workers design
 
-This document is the approved plan for mod id `villager_workers`. Nothing in it is implemented yet. Milestone issues are in [MILESTONES.md](MILESTONES.md).
+This document is the approved plan for mod id `villager_workers`. Milestones 1 and 2 are implemented. Milestone 3 is not. Milestone issues are in [MILESTONES.md](MILESTONES.md).
 
 The target game is Minecraft 1.21.1 on NeoForge 21.1.x, in a pack with Create 6.0.x and Create Aeronautics (`aeronautics`). The mod must still load if Create is absent. There is no leveling system.
 
@@ -272,7 +272,7 @@ The predicate allows a break only when all of the following are true:
 4. The block is not on the global denylist: `bedrock`, `barrier`, `command_block`, `chain_command_block`, `repeating_command_block`, `structure_block`, `structure_void`, `jigsaw`, `end_portal`, `end_portal_frame`, `nether_portal`, `reinforced_deepslate`. The whitelist cannot override this list.
 5. The position is not the home bed and not a linked chest, schematic anchor, or wand origin marker.
 6. The block has no block entity, unless its id is on this worker's `breakWhitelist`.
-7. The block's namespace is not `create` and not `aeronautics`, unless its id is on this worker's `breakWhitelist`. At the start of M2, confirm whether the pack also registers world blocks under `simulated` or `sable`, and add those namespaces to this same rule if it does. The default whitelist is empty.
+7. The block's namespace is not `create`, `aeronautics`, `simulated`, `sable`, or `offroad`, unless its id is on this worker's `breakWhitelist`. Those extra namespaces register world blocks in the Create Aeronautics pack. The default whitelist is empty.
 8. Lumberjack additionally requires `#minecraft:logs`, or `#minecraft:leaves` when `clearLeaves` is set. Logs outside the box are not cut, including a tree that grows out of the box. Leaves outside the box are not cleared.
 9. Miner may break any other block that passed the checks above. It still cannot break denylisted blocks, unwhitelisted machines, or unwhitelisted Create and Aeronautics blocks.
 10. The owner would be allowed to break that block. Before the break, post NeoForge's block-break event as a survival-mode break by the owner (spawn protection, world border, and claim mods that listen to that event). If the event is cancelled, do not break the block. Do not use a creative fake player.

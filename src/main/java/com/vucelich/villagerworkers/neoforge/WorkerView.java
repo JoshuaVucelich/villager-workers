@@ -69,7 +69,7 @@ public record WorkerView(
                 data.job().id(),
                 data.activity().id(),
                 data.rested(),
-                StatusText.problem(hungry, hurt),
+                StatusText.problem(hungry, hurt, data.problem()),
                 data.owner().equals(viewer.getUUID()),
                 ModList.get().isLoaded("create"),
                 area,

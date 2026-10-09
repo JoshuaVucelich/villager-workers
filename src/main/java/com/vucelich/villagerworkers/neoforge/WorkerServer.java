@@ -130,7 +130,7 @@ public final class WorkerServer {
             return;
         }
         switch (match.verb().get()) {
-            case COME -> data.setActivity(ActivityRules.afterCome());
+            case COME -> data.comeTo(player.getUUID());
             case STOP -> data.setActivity(ActivityRules.afterStop());
             case RESUME -> {
                 Optional<WorkerActivity> next = ActivityRules.afterResume(data.job());
@@ -208,7 +208,7 @@ public final class WorkerServer {
                 }
             }
             case MenuIds.STOP -> data.setActivity(ActivityRules.afterStop());
-            case MenuIds.COME -> data.setActivity(ActivityRules.afterCome());
+            case MenuIds.COME -> data.comeTo(serverPlayer.getUUID());
             case MenuIds.JOB_NONE -> data.setJob(WorkerJob.NONE);
             case MenuIds.JOB_LUMBERJACK -> data.setJob(WorkerJob.LUMBERJACK);
             case MenuIds.JOB_MINER -> data.setJob(WorkerJob.MINER);
@@ -509,7 +509,8 @@ public final class WorkerServer {
                 (int) villager.getHealth(),
                 (int) villager.getMaxHealth(),
                 WorkerTicker.hungry(villager),
-                WorkerTicker.hurt(villager));
+                WorkerTicker.hurt(villager),
+                data.problem());
     }
 
     private static void deny(ServerPlayer player) {

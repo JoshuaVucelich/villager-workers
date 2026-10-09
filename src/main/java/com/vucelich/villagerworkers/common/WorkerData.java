@@ -32,6 +32,7 @@ public final class WorkerData {
             BuilderConfig.CODEC.optionalFieldOf("builder", BuilderConfig.defaults()).forGetter(WorkerData::builder),
             ResourceLocation.CODEC.listOf().optionalFieldOf("break_whitelist", List.of()).forGetter(WorkerData::breakWhitelist),
             WorkerProblem.CODEC.optionalFieldOf("problem", WorkerProblem.NONE).forGetter(WorkerData::problem),
+            UUIDUtil.STRING_CODEC.optionalFieldOf("come_target").forGetter(data -> Optional.ofNullable(data.comeTarget())),
             AlertBookkeeping.CODEC.optionalFieldOf("alerts", AlertBookkeeping.NONE).forGetter(WorkerData::alerts)
     ).apply(instance, WorkerData::fromCodec));
 
@@ -48,6 +49,8 @@ public final class WorkerData {
     private BuilderConfig builder = BuilderConfig.defaults();
     private final List<ResourceLocation> breakWhitelist = new ArrayList<>();
     private WorkerProblem problem = WorkerProblem.NONE;
+    private UUID comeTarget;
+    private final List<WorkNotice> notices = new ArrayList<>();
     private long hungryNotifiedAt = Long.MIN_VALUE;
     private long hurtNotifiedAt = Long.MIN_VALUE;
     private boolean hungryPending;
@@ -89,6 +92,7 @@ public final class WorkerData {
             BuilderConfig builder,
             List<ResourceLocation> breakWhitelist,
             WorkerProblem problem,
+            Optional<UUID> comeTarget,
             AlertBookkeeping alerts) {
         WorkerData data = new WorkerData();
         data.owner = owner;
@@ -104,6 +108,10 @@ public final class WorkerData {
         data.builder = builder;
         data.breakWhitelist.addAll(breakWhitelist);
         data.problem = problem;
+        data.comeTarget = comeTarget.orElse(null);
+        if (alerts.notices() != null) {
+            data.notices.addAll(alerts.notices());
+        }
         data.hungryNotifiedAt = alerts.hungryNotifiedAt();
         data.hurtNotifiedAt = alerts.hurtNotifiedAt();
         data.hungryPending = alerts.hungryPending();
@@ -112,20 +120,27 @@ public final class WorkerData {
     }
 
     private AlertBookkeeping alerts() {
-        return new AlertBookkeeping(hungryNotifiedAt, hurtNotifiedAt, hungryPending, hurtPending);
+        return new AlertBookkeeping(hungryNotifiedAt, hurtNotifiedAt, hungryPending, hurtPending, List.copyOf(notices));
     }
 
     /**
-     * Hunger and injury notices, nested so the worker codec stays within Mojang's 16-field record limit.
+     * Hunger, injury, and work notices, nested so the worker codec stays within Mojang's 16-field record limit.
      */
-    public record AlertBookkeeping(long hungryNotifiedAt, long hurtNotifiedAt, boolean hungryPending, boolean hurtPending) {
-        public static final AlertBookkeeping NONE = new AlertBookkeeping(Long.MIN_VALUE, Long.MIN_VALUE, false, false);
+    public record AlertBookkeeping(
+            long hungryNotifiedAt,
+            long hurtNotifiedAt,
+            boolean hungryPending,
+            boolean hurtPending,
+            List<WorkNotice> notices) {
+        public static final AlertBookkeeping NONE =
+                new AlertBookkeeping(Long.MIN_VALUE, Long.MIN_VALUE, false, false, List.of());
 
         public static final Codec<AlertBookkeeping> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.LONG.optionalFieldOf("hungry_notified_at", Long.MIN_VALUE).forGetter(AlertBookkeeping::hungryNotifiedAt),
                 Codec.LONG.optionalFieldOf("hurt_notified_at", Long.MIN_VALUE).forGetter(AlertBookkeeping::hurtNotifiedAt),
                 Codec.BOOL.optionalFieldOf("hungry_pending", false).forGetter(AlertBookkeeping::hungryPending),
-                Codec.BOOL.optionalFieldOf("hurt_pending", false).forGetter(AlertBookkeeping::hurtPending)
+                Codec.BOOL.optionalFieldOf("hurt_pending", false).forGetter(AlertBookkeeping::hurtPending),
+                WorkNotice.CODEC.listOf().optionalFieldOf("notices", List.of()).forGetter(AlertBookkeeping::notices)
         ).apply(instance, AlertBookkeeping::new));
     }
 
@@ -178,6 +193,55 @@ public final class WorkerData {
 
     public void setActivity(WorkerActivity activity) {
         this.activity = activity == null ? WorkerActivity.IDLE : activity;
+        if (this.activity != WorkerActivity.COMING) {
+            this.comeTarget = null;
+        }
+    }
+
+    public UUID comeTarget() {
+        return comeTarget;
+    }
+
+    public void comeTo(UUID player) {
+        this.activity = WorkerActivity.COMING;
+        this.comeTarget = player;
+    }
+
+    public List<WorkNotice> notices() {
+        return List.copyOf(notices);
+    }
+
+    public WorkNotice notice(ProblemCode code) {
+        if (code == null) {
+            return null;
+        }
+        for (WorkNotice notice : notices) {
+            if (code.id().equals(notice.code())) {
+                return notice;
+            }
+        }
+        return null;
+    }
+
+    public void putNotice(WorkNotice notice) {
+        if (notice == null) {
+            return;
+        }
+        notices.removeIf(existing -> existing.code().equals(notice.code()));
+        notices.add(notice);
+    }
+
+    public List<BlockPos> linkedPositions() {
+        List<BlockPos> positions = new ArrayList<>();
+        lumberjack.logChest().ifPresent(positions::add);
+        lumberjack.saplingChest().ifPresent(positions::add);
+        lumberjack.toolChest().ifPresent(positions::add);
+        miner.valuablesChest().ifPresent(positions::add);
+        miner.regularChest().ifPresent(positions::add);
+        miner.toolChest().ifPresent(positions::add);
+        builder.schematicAnchor().ifPresent(positions::add);
+        positions.addAll(builder.materialChests());
+        return positions;
     }
 
     public boolean rested() {

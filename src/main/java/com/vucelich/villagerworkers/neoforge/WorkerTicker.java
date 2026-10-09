@@ -41,7 +41,9 @@ public final class WorkerTicker {
             clearMissingBed(villager, data);
             alert(villager, data, ProblemCode.HUNGRY, hungry(villager));
             alert(villager, data, ProblemCode.HURT, hurt(villager));
+            OwnerNotices.flushPending(villager, data);
         }
+        JobRunner.tick(villager, data);
     }
 
     public static boolean hungry(Villager villager) {
@@ -117,9 +119,17 @@ public final class WorkerTicker {
             owner.sendSystemMessage(Component.literal(StatusText.ownerAlert(name, code)));
             setNotified(data, code, now);
             setPending(data, code, false);
-            data.setProblem(new WorkerProblem(code, ""));
+            rememberCondition(data, code);
         } else if (owner == null && due && !pending) {
             setPending(data, code, true);
+            rememberCondition(data, code);
+        }
+    }
+
+    /** Hunger and injury stay on the status line, but they must not erase a work problem. */
+    private static void rememberCondition(WorkerData data, ProblemCode code) {
+        ProblemCode current = data.problem().code();
+        if (current == ProblemCode.NONE || current == ProblemCode.HUNGRY || current == ProblemCode.HURT) {
             data.setProblem(new WorkerProblem(code, ""));
         }
     }
