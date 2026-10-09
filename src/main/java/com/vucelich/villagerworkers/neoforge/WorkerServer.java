@@ -133,9 +133,9 @@ public final class WorkerServer {
             case COME -> data.comeTo(player.getUUID());
             case STOP -> data.setActivity(ActivityRules.afterStop());
             case RESUME -> {
-                Optional<WorkerActivity> next = ActivityRules.afterResume(data.job());
+                Optional<WorkerActivity> next = ActivityRules.afterResume(data.job(), net.neoforged.fml.ModList.get().isLoaded("create"));
                 if (next.isEmpty()) {
-                    player.sendSystemMessage(Component.literal("The builder does not work yet."));
+                    player.sendSystemMessage(Component.literal("Create is required before this worker can build."));
                     return;
                 }
                 data.setActivity(next.get());
@@ -203,7 +203,7 @@ public final class WorkerServer {
         }
         switch (id) {
             case MenuIds.START -> {
-                if (!applyActivity(serverPlayer, data, ActivityRules.afterStart(data.job()))) {
+                if (!applyActivity(serverPlayer, data, ActivityRules.afterStart(data.job(), net.neoforged.fml.ModList.get().isLoaded("create")))) {
                     return false;
                 }
             }
@@ -461,7 +461,7 @@ public final class WorkerServer {
 
     private static boolean applyActivity(ServerPlayer player, WorkerData data, Optional<WorkerActivity> next) {
         if (next.isEmpty()) {
-            player.sendSystemMessage(Component.literal("The builder does not work yet."));
+            player.sendSystemMessage(Component.literal("Create is required before this worker can build."));
             return false;
         }
         data.setActivity(next.get());

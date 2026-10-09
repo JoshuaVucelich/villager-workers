@@ -1,6 +1,6 @@
 # Villager Workers design
 
-This document is the approved plan for mod id `villager_workers`. Milestones 1 and 2 are implemented. Milestone 3 is not. Milestone issues are in [MILESTONES.md](MILESTONES.md).
+This document is the approved plan for mod id `villager_workers`. Milestones 1, 2, and 3 are implemented. Milestone issues are in [MILESTONES.md](MILESTONES.md).
 
 The target game is Minecraft 1.21.1 on NeoForge 21.1.x, in a pack with Create 6.0.x and Create Aeronautics (`aeronautics`). The mod must still load if Create is absent. There is no leveling system.
 
@@ -296,7 +296,7 @@ Confirm Create 6.0's schematic holder API at the start of M3 (`SchematicannonBlo
 Placement, bottom to top:
 
 - If the world block already matches the schematic entry, skip it.
-- If the position is replaceable (air, water, or another replaceable material), take one matching item from the material chests and place it. Apply the schematic's block-entity NBT the same way the cannon would, once the API spike shows that is safe.
+- If the position is replaceable (air, water, or another replaceable material), take one matching item from the material chests and place it. Create 6.0.10 schematic block-entity NBT can carry arbitrary item components, so the builder places the block state only and does not copy that NBT.
 - If the position is a solid block that does not match, skip it, record `BLOCKED`, and continue. The builder never breaks blocks, so a Create machine already in the footprint stays in place.
 - If an item is missing, pause with `OUT_OF_MATERIALS` and check the chests again every 5 seconds. Resume also clears the pause when the item is present.
 

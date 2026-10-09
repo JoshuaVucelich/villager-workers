@@ -8,11 +8,12 @@ import org.junit.jupiter.api.Test;
 class ActivityAndStatusTest {
     @Test
     void startAndResumeFollowTheJob() {
-        assertEquals(WorkerActivity.IDLE, ActivityRules.afterStart(WorkerJob.NONE).orElseThrow());
-        assertEquals(WorkerActivity.WORKING, ActivityRules.afterStart(WorkerJob.LUMBERJACK).orElseThrow());
-        assertEquals(WorkerActivity.WORKING, ActivityRules.afterResume(WorkerJob.MINER).orElseThrow());
-        assertTrue(ActivityRules.afterStart(WorkerJob.BUILDER).isEmpty());
-        assertTrue(ActivityRules.afterResume(WorkerJob.BUILDER).isEmpty());
+        assertEquals(WorkerActivity.IDLE, ActivityRules.afterStart(WorkerJob.NONE, false).orElseThrow());
+        assertEquals(WorkerActivity.WORKING, ActivityRules.afterStart(WorkerJob.LUMBERJACK, false).orElseThrow());
+        assertEquals(WorkerActivity.WORKING, ActivityRules.afterResume(WorkerJob.MINER, false).orElseThrow());
+        assertTrue(ActivityRules.afterStart(WorkerJob.BUILDER, false).isEmpty());
+        assertTrue(ActivityRules.afterResume(WorkerJob.BUILDER, false).isEmpty());
+        assertEquals(WorkerActivity.WORKING, ActivityRules.afterStart(WorkerJob.BUILDER, true).orElseThrow());
         assertEquals(WorkerActivity.STOPPED, ActivityRules.afterStop());
         assertEquals(WorkerActivity.COMING, ActivityRules.afterCome());
     }

@@ -2,7 +2,7 @@
 
 Issues to file for Villager Workers. Each one lists the title, scope, and acceptance criteria. The behavior they refer to is specified in [DESIGN.md](DESIGN.md).
 
-M1 and M2 are implemented. M3 is not.
+M1, M2, and M3 are implemented.
 
 Order is M1, then M2, then M3. Later issues may persist fields that an earlier issue defined, but they must not start a later milestone's job AI early.
 
