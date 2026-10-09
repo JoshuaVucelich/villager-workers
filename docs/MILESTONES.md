@@ -2,7 +2,7 @@
 
 Issues to file for Villager Workers. Each one lists the title, scope, and acceptance criteria. The behavior they refer to is specified in [DESIGN.md](DESIGN.md).
 
-The current tree is only the NeoForge skeleton. None of these issues are implemented.
+M1 and M2 are implemented. M3 is not.
 
 Order is M1, then M2, then M3. Later issues may persist fields that an earlier issue defined, but they must not start a later milestone's job AI early.
 
@@ -121,7 +121,7 @@ Workers with a saved area break only the blocks the safety rules allow, haul dro
 
 **Title:** Break only safe blocks inside the work volume
 
-**Scope:** Implement the break predicate from the design and make it the only way job code destroys a block. Compute the clear-box, tunnel, branch, and shaft volumes from saved setup. Honor the global denylist, block entities, the `create` and `aeronautics` namespaces, the per-worker whitelist, reach, the home bed, and linked chests. Confirm `simulated` and `sable` against the pack before deciding whether those namespaces join the denylist. Gate the break on the owner's survival-mode break permission so spawn protection and claim mods can cancel it.
+**Scope:** Implement the break predicate from the design and make it the only way job code destroys a block. Compute the clear-box, tunnel, branch, and shaft volumes from saved setup. Honor the global denylist, block entities, the `create` and `aeronautics` namespaces, the per-worker whitelist, reach, the home bed, and linked chests. `simulated`, `sable`, and `offroad` register world blocks in the Create Aeronautics pack, so they use the same protection as `create` and `aeronautics`. Gate the break on the owner's survival-mode break permission so spawn protection and claim mods can cancel it.
 
 **Acceptance criteria:**
 

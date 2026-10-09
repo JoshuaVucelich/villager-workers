@@ -1,0 +1,985 @@
+package com.vucelich.villagerworkers.neoforge;
+
+import com.vucelich.villagerworkers.common.ActionPace;
+import com.vucelich.villagerworkers.common.BreakRules;
+import com.vucelich.villagerworkers.common.ProblemCode;
+import com.vucelich.villagerworkers.common.SaplingKinds;
+import com.vucelich.villagerworkers.common.WorkVolumes;
+import com.vucelich.villagerworkers.common.WorkerActivity;
+import com.vucelich.villagerworkers.common.WorkerData;
+import com.vucelich.villagerworkers.common.WorkerJob;
+import com.vucelich.villagerworkers.common.WorkerProblem;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.world.Container;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.GameMasterBlock;
+import net.minecraft.world.level.block.LiquidBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.ChestType;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.common.util.BlockSnapshot;
+import net.neoforged.neoforge.event.EventHooks;
+import net.neoforged.neoforge.event.entity.living.LivingDropsEvent;
+import net.neoforged.neoforge.event.level.BlockEvent;
+
+/**
+ * Lumberjack and miner work, plus walking over when someone says come.
+ * The builder does not run here. Breaking goes through {@link BreakRules} and the owner's break event.
+ */
+public final class JobRunner {
+    private static final Map<UUID, Runtime> RUNTIMES = new ConcurrentHashMap<>();
+    private static final int SCAN_BUDGET = 128;
+    private static final int TREE_LIMIT = 128;
+
+    private enum Phase {
+        LOGS,
+        LEAVES,
+        WALL,
+        DONE
+    }
+
+    private static final class Runtime {
+        String signature = "";
+        Phase phase = Phase.LOGS;
+        int cursor;
+        boolean foundThisPass;
+        BlockPos breaking;
+        float progress;
+        long cooldownUntil;
+        BlockPos walkTo;
+        boolean controlling;
+        BlockPos stuckPos;
+        long stuckSince = Long.MIN_VALUE;
+        boolean stuckRetried;
+        List<BlockPos> tree = List.of();
+        int treeIndex;
+        BlockPos stump;
+        String stumpItem = "";
+        List<BlockPos> walls = List.of();
+        boolean wallsReady;
+    }
+
+    private JobRunner() {}
+
+    public static void tick(Villager villager, WorkerData data) {
+        if (!(villager.level() instanceof ServerLevel level)) {
+            return;
+        }
+        Runtime runtime = RUNTIMES.computeIfAbsent(villager.getUUID(), id -> new Runtime());
+        if (data.activity() != WorkerActivity.WORKING && data.activity() != WorkerActivity.COMING) {
+            release(villager, data, runtime);
+            return;
+        }
+        if (data.activity() == WorkerActivity.COMING) {
+            returnTool(villager, data);
+            come(villager, data, runtime);
+            return;
+        }
+        if (data.job() != WorkerJob.LUMBERJACK && data.job() != WorkerJob.MINER) {
+            release(villager, data, runtime);
+            return;
+        }
+        String signature = signature(data);
+        if (!signature.equals(runtime.signature)) {
+            runtime.signature = signature;
+            runtime.phase = data.job() == WorkerJob.MINER ? Phase.LOGS : Phase.LOGS;
+            runtime.cursor = 0;
+            runtime.foundThisPass = false;
+            runtime.breaking = null;
+            runtime.progress = 0;
+            runtime.tree = List.of();
+            runtime.treeIndex = 0;
+            runtime.stump = null;
+            runtime.walls = List.of();
+            runtime.wallsReady = false;
+        }
+        if (data.job() == WorkerJob.MINER && runtime.phase == Phase.LEAVES) {
+            runtime.phase = Phase.LOGS;
+        }
+        if (level.getGameTime() < runtime.cooldownUntil) {
+            if (runtime.walkTo != null) {
+                walk(villager, runtime);
+            }
+            return;
+        }
+        if (!ensureTool(villager, data, runtime)) {
+            return;
+        }
+        if (data.job() == WorkerJob.LUMBERJACK) {
+            pickupSaplings(level, villager, data, runtime);
+            if (data.activity() != WorkerActivity.WORKING) {
+                return;
+            }
+        }
+        if (runtime.breaking != null) {
+            tickBreak(level, villager, data, runtime);
+            return;
+        }
+        if (readyToPlant(runtime)) {
+            plantStump(level, villager, data, runtime);
+            return;
+        }
+        if (runtime.phase == Phase.DONE) {
+            release(villager, data, runtime);
+            return;
+        }
+        BlockPos next = nextTarget(level, villager, data, runtime);
+        if (next == null) {
+            return;
+        }
+        if (inReach(villager, next)) {
+            runtime.walkTo = null;
+            runtime.breaking = next.immutable();
+            runtime.progress = 0;
+            runtime.controlling = true;
+            tickBreak(level, villager, data, runtime);
+        } else {
+            runtime.walkTo = next.immutable();
+            runtime.controlling = true;
+            walk(villager, runtime);
+            stuck(level, villager, data, runtime);
+        }
+    }
+
+    public static void onDeath(LivingDropsEvent event) {
+        if (!(event.getEntity() instanceof Villager villager) || !WorkerAttachments.isWorker(villager)) {
+            return;
+        }
+        RUNTIMES.remove(villager.getUUID());
+        ItemStack hand = villager.getMainHandItem();
+        if (!isTool(hand)) {
+            return;
+        }
+        event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), hand.copy()));
+        villager.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+    }
+
+    private static void come(Villager villager, WorkerData data, Runtime runtime) {
+        if (villager.getServer() == null || data.comeTarget() == null) {
+            release(villager, data, runtime);
+            return;
+        }
+        ServerPlayer player = villager.getServer().getPlayerList().getPlayer(data.comeTarget());
+        if (player == null || player.level() != villager.level()) {
+            release(villager, data, runtime);
+            return;
+        }
+        if (villager.distanceToSqr(player) <= ActionPace.COME_DISTANCE_SQR) {
+            villager.getNavigation().stop();
+            runtime.walkTo = null;
+            runtime.controlling = false;
+            runtime.stuckSince = Long.MIN_VALUE;
+            return;
+        }
+        runtime.walkTo = player.blockPosition();
+        runtime.controlling = true;
+        walk(villager, runtime);
+        stuck(villager.level() instanceof ServerLevel level ? level : null, villager, data, runtime);
+    }
+
+    private static BlockPos nextTarget(ServerLevel level, Villager villager, WorkerData data, Runtime runtime) {
+        if (data.job() == WorkerJob.LUMBERJACK && runtime.phase == Phase.LOGS && runtime.treeIndex < runtime.tree.size()) {
+            while (runtime.treeIndex < runtime.tree.size()) {
+                BlockPos pos = runtime.tree.get(runtime.treeIndex);
+                BlockState state = level.getBlockState(pos);
+                if (state.is(BlockTags.LOGS) && legal(level, villager, data, pos, state, true)) {
+                    return pos;
+                }
+                runtime.treeIndex++;
+            }
+            runtime.tree = List.of();
+            runtime.treeIndex = 0;
+            if (data.lumberjack().replantSaplings() && runtime.stump != null) {
+                return null;
+            }
+        }
+        if (runtime.phase == Phase.WALL) {
+            return scanWalls(level, villager, data, runtime);
+        }
+        return scanDig(level, villager, data, runtime);
+    }
+
+    private static BlockPos scanDig(ServerLevel level, Villager villager, WorkerData data, Runtime runtime) {
+        int count = WorkVolumes.digCount(data);
+        if (count <= 0) {
+            advance(data, runtime);
+            return null;
+        }
+        for (int n = 0; n < SCAN_BUDGET; n++) {
+            int index = runtime.cursor;
+            runtime.cursor++;
+            boolean wrapped = false;
+            if (runtime.cursor >= count) {
+                runtime.cursor = 0;
+                wrapped = true;
+            }
+            BlockPos pos = WorkVolumes.digAt(data, index);
+            if (pos != null && level.isLoaded(pos) && interesting(level, data, runtime, pos)) {
+                runtime.foundThisPass = true;
+                if (data.job() == WorkerJob.LUMBERJACK && runtime.phase == Phase.LOGS) {
+                    collectTree(level, data, runtime, pos);
+                    if (runtime.tree.isEmpty()) {
+                        continue;
+                    }
+                    return runtime.tree.get(0);
+                }
+                return pos;
+            }
+            if (wrapped) {
+                if (!runtime.foundThisPass) {
+                    advance(data, runtime);
+                    return null;
+                }
+                runtime.foundThisPass = false;
+            }
+        }
+        return null;
+    }
+
+    private static BlockPos scanWalls(ServerLevel level, Villager villager, WorkerData data, Runtime runtime) {
+        if (!runtime.wallsReady) {
+            runtime.walls = WorkVolumes.walls(data);
+            runtime.wallsReady = true;
+        }
+        int count = runtime.walls.size();
+        if (count <= 0) {
+            runtime.phase = Phase.DONE;
+            return null;
+        }
+        for (int n = 0; n < SCAN_BUDGET; n++) {
+            int index = runtime.cursor;
+            runtime.cursor++;
+            boolean wrapped = false;
+            if (runtime.cursor >= count) {
+                runtime.cursor = 0;
+                wrapped = true;
+            }
+            BlockPos pos = runtime.walls.get(index);
+            if (pos != null && level.isLoaded(pos) && needsWall(level, data, pos)) {
+                runtime.foundThisPass = true;
+                return pos;
+            }
+            if (wrapped) {
+                if (!runtime.foundThisPass) {
+                    runtime.phase = Phase.DONE;
+                    return null;
+                }
+                runtime.foundThisPass = false;
+            }
+        }
+        return null;
+    }
+
+    private static void advance(WorkerData data, Runtime runtime) {
+        runtime.cursor = 0;
+        runtime.foundThisPass = false;
+        runtime.breaking = null;
+        if (data.job() == WorkerJob.LUMBERJACK && runtime.phase == Phase.LOGS) {
+            runtime.phase = data.lumberjack().clearLeaves() ? Phase.LEAVES : Phase.DONE;
+            return;
+        }
+        if (data.job() == WorkerJob.MINER && runtime.phase == Phase.LOGS) {
+            runtime.phase = data.miner().wallBlock() == null || data.miner().wallBlock().isBlank() ? Phase.DONE : Phase.WALL;
+            return;
+        }
+        runtime.phase = Phase.DONE;
+    }
+
+    private static boolean interesting(ServerLevel level, WorkerData data, Runtime runtime, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (state.isAir() || state.getBlock() instanceof LiquidBlock) {
+            return false;
+        }
+        if (data.job() == WorkerJob.LUMBERJACK) {
+            if (runtime.phase == Phase.LOGS && !state.is(BlockTags.LOGS)) {
+                return false;
+            }
+            if (runtime.phase == Phase.LEAVES && !state.is(BlockTags.LEAVES)) {
+                return false;
+            }
+        }
+        return legal(level, null, data, pos, state, true);
+    }
+
+    private static boolean needsWall(ServerLevel level, WorkerData data, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        ResourceLocation wall = wallId(data);
+        if (wall == null) {
+            return false;
+        }
+        ResourceLocation current = BuiltInRegistries.BLOCK.getKey(state.getBlock());
+        if (wall.equals(current)) {
+            return false;
+        }
+        if (state.isAir() || state.canBeReplaced()) {
+            return true;
+        }
+        return legal(level, null, data, pos, state, true);
+    }
+
+    private static void tickBreak(ServerLevel level, Villager villager, WorkerData data, Runtime runtime) {
+        BlockPos pos = runtime.breaking;
+        if (pos == null || !level.isLoaded(pos) || !inReach(villager, pos)) {
+            runtime.breaking = null;
+            runtime.progress = 0;
+            return;
+        }
+        BlockState state = level.getBlockState(pos);
+        boolean wall = runtime.phase == Phase.WALL;
+        if (wall) {
+            if (!needsWall(level, data, pos)) {
+                runtime.breaking = null;
+                return;
+            }
+            if (state.isAir() || state.canBeReplaced()) {
+                placeWall(level, villager, data, runtime, pos);
+                return;
+            }
+        } else if (!interesting(level, data, runtime, pos)) {
+            runtime.breaking = null;
+            runtime.progress = 0;
+            level.destroyBlockProgress(villager.getId(), pos, -1);
+            return;
+        }
+        if (!legal(level, villager, data, pos, state, false)) {
+            runtime.breaking = null;
+            runtime.progress = 0;
+            return;
+        }
+        ItemStack tool = villager.getItemInHand(InteractionHand.MAIN_HAND);
+        if (!usable(tool)) {
+            pause(villager, data, runtime, ProblemCode.BROKEN_TOOL, "");
+            return;
+        }
+        if (!destinationReady(level, villager, data, runtime, state)) {
+            return;
+        }
+        float hardness = state.getDestroySpeed(level, pos);
+        float step = hardness == 0.0F
+                ? 1.0F
+                : toolSpeed(state, tool) / hardness / (tool.isCorrectToolForDrops(state) ? 30.0F : 100.0F) * ActionPace.breakMultiplier(data.rested());
+        runtime.progress += step;
+        level.destroyBlockProgress(villager.getId(), pos, Math.min(9, (int) (runtime.progress * 10)));
+        if (runtime.progress < 1.0F) {
+            return;
+        }
+        finishBreak(level, villager, data, runtime, pos, state, tool);
+    }
+
+    private static void finishBreak(
+            ServerLevel level, Villager villager, WorkerData data, Runtime runtime, BlockPos pos, BlockState state, ItemStack tool) {
+        BreakGate gate = ownerAllows(level, villager, data, pos, state);
+        if (gate == BreakGate.WAIT) {
+            return;
+        }
+        if (gate == BreakGate.SKIP) {
+            runtime.breaking = null;
+            runtime.progress = 0;
+            level.destroyBlockProgress(villager.getId(), pos, -1);
+            if (runtime.treeIndex < runtime.tree.size() && pos.equals(runtime.tree.get(runtime.treeIndex))) {
+                runtime.treeIndex++;
+            }
+            return;
+        }
+        BlockEntity entity = state.hasBlockEntity() ? level.getBlockEntity(pos) : null;
+        List<ItemStack> drops = Block.getDrops(state, level, pos, entity, villager, tool);
+        if (state.is(BlockTags.LOGS)) {
+            rememberStump(level, data, runtime, pos, state);
+        }
+        if (state.is(BlockTags.BEDS)) {
+            clearOtherBedHalf(level, pos, state);
+        }
+        ServerPlayer ownerPlayer = owner(villager, data);
+        if (ownerPlayer != null) {
+            state.getBlock().playerWillDestroy(level, pos, state, ownerPlayer);
+        }
+        if (!level.getBlockState(pos).isAir()) {
+            level.destroyBlock(pos, false, villager);
+        }
+        level.destroyBlockProgress(villager.getId(), pos, -1);
+        if (!level.getBlockState(pos).isAir()) {
+            runtime.breaking = null;
+            runtime.progress = 0;
+            return;
+        }
+        if (tool.isDamageableItem()) {
+            tool.hurtAndBreak(1, villager, EquipmentSlot.MAINHAND);
+        }
+        Deposit deposit = putDrops(level, villager, data, drops);
+        runtime.breaking = null;
+        runtime.progress = 0;
+        runtime.cooldownUntil = level.getGameTime() + ActionPace.ticksBetweenActions(data.rested());
+        runtime.stuckSince = Long.MIN_VALUE;
+        if (runtime.treeIndex < runtime.tree.size() && pos.equals(runtime.tree.get(runtime.treeIndex))) {
+            runtime.treeIndex++;
+        }
+        if (deposit != Deposit.OK) {
+            pause(villager, data, runtime, deposit == Deposit.MISSING ? ProblemCode.MISSING_CHEST : ProblemCode.CHEST_FULL, "");
+        } else {
+            clearSolved(data);
+        }
+    }
+
+    private static void placeWall(ServerLevel level, Villager villager, WorkerData data, Runtime runtime, BlockPos pos) {
+        ResourceLocation wall = wallId(data);
+        if (wall == null) {
+            runtime.breaking = null;
+            return;
+        }
+        Container chest = ContainerAccess.open(level, data.miner().regularChest().orElse(null));
+        if (data.miner().regularChest().isEmpty() || chest == null) {
+            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+            return;
+        }
+        if (!wallItemAllowed(data, wall)) {
+            pause(villager, data, runtime, ProblemCode.OUT_OF_MATERIALS, wall.toString());
+            return;
+        }
+        PlaceResult placed = takeAndPlace(level, villager, data, chest, wall, pos);
+        if (placed == PlaceResult.WAIT) {
+            return;
+        }
+        if (placed == PlaceResult.MISSING) {
+            pause(villager, data, runtime, ProblemCode.OUT_OF_MATERIALS, wall.toString());
+            return;
+        }
+        runtime.breaking = null;
+        if (placed == PlaceResult.PLACED) {
+            runtime.cooldownUntil = level.getGameTime() + ActionPace.ticksBetweenActions(data.rested());
+            clearSolved(data);
+        }
+    }
+
+    private static void plantStump(ServerLevel level, Villager villager, WorkerData data, Runtime runtime) {
+        BlockPos pos = runtime.stump;
+        String item = runtime.stumpItem;
+        runtime.stump = null;
+        runtime.stumpItem = "";
+        if (pos == null || item == null || item.isBlank() || !level.isLoaded(pos)) {
+            return;
+        }
+        if (!WorkVolumes.isDig(data, level.dimension().location(), pos)) {
+            return;
+        }
+        BlockState ground = level.getBlockState(pos.below());
+        BlockState here = level.getBlockState(pos);
+        if (!ground.is(BlockTags.DIRT) || !(here.isAir() || here.canBeReplaced())) {
+            return;
+        }
+        Container chest = ContainerAccess.open(level, data.lumberjack().saplingChest().orElse(null));
+        if (data.lumberjack().saplingChest().isEmpty() || chest == null) {
+            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+            runtime.stump = pos;
+            runtime.stumpItem = item;
+            return;
+        }
+        ResourceLocation id = ResourceLocation.parse(item);
+        PlaceResult placed = takeAndPlace(level, villager, data, chest, id, pos);
+        if (placed == PlaceResult.WAIT) {
+            runtime.stump = pos;
+            runtime.stumpItem = item;
+            return;
+        }
+        if (placed != PlaceResult.PLACED) {
+            pause(villager, data, runtime, ProblemCode.OUT_OF_MATERIALS, item);
+            runtime.stump = pos;
+            runtime.stumpItem = item;
+            return;
+        }
+        runtime.cooldownUntil = level.getGameTime() + ActionPace.ticksBetweenActions(data.rested());
+        clearSolved(data);
+    }
+
+    private static boolean readyToPlant(Runtime runtime) {
+        return runtime.stump != null && (runtime.tree.isEmpty() || runtime.treeIndex >= runtime.tree.size());
+    }
+
+    private static void pickupSaplings(ServerLevel level, Villager villager, WorkerData data, Runtime runtime) {
+        AABB box = villager.getBoundingBox().inflate(1.0);
+        for (ItemEntity entity : level.getEntitiesOfClass(ItemEntity.class, box, item -> isSapling(item.getItem()))) {
+            ItemStack stack = entity.getItem();
+            if (stack.isEmpty()) {
+                continue;
+            }
+            BlockPos chestPos = data.lumberjack().saplingChest().orElse(null);
+            if (chestPos == null) {
+                continue;
+            }
+            Deposit deposit = store(level, villager, chestPos, stack.copy());
+            entity.discard();
+            if (deposit != Deposit.OK) {
+                pause(villager, data, runtime, deposit == Deposit.MISSING ? ProblemCode.MISSING_CHEST : ProblemCode.CHEST_FULL, "");
+                return;
+            }
+        }
+    }
+
+    private static boolean wallItemAllowed(WorkerData data, ResourceLocation wall) {
+        String id = wall.toString();
+        if (BreakRules.GLOBAL_DENY.contains(BreakRules.path(id))) {
+            return false;
+        }
+        boolean whitelisted = data.breakWhitelist().stream().anyMatch(entry -> entry.equals(wall));
+        return whitelisted || !BreakRules.PROTECTED_NAMESPACES.contains(wall.getNamespace());
+    }
+
+    private enum PlaceResult {
+        PLACED,
+        MISSING,
+        DENIED,
+        WAIT
+    }
+
+    private static PlaceResult takeAndPlace(
+            ServerLevel level, Villager villager, WorkerData data, Container chest, ResourceLocation itemId, BlockPos pos) {
+        ItemStack taken = ContainerAccess.takeBest(chest, stack -> itemId.equals(BuiltInRegistries.ITEM.getKey(stack.getItem())));
+        if (taken.isEmpty()) {
+            return PlaceResult.MISSING;
+        }
+        Block block = BuiltInRegistries.BLOCK.get(itemId);
+        if (block == null || block.defaultBlockState().isAir()) {
+            ContainerAccess.insert(chest, taken);
+            return PlaceResult.MISSING;
+        }
+        ServerPlayer ownerPlayer = owner(villager, data);
+        if (ownerPlayer == null) {
+            ContainerAccess.insert(chest, taken);
+            return PlaceResult.WAIT;
+        }
+        BlockState previous = level.getBlockState(pos);
+        BlockSnapshot snapshot = BlockSnapshot.create(level.dimension(), level, pos);
+        if (!level.setBlock(pos, block.defaultBlockState(), Block.UPDATE_ALL)) {
+            ContainerAccess.insert(chest, taken);
+            return PlaceResult.DENIED;
+        }
+        if (EventHooks.onBlockPlace(ownerPlayer, snapshot, net.minecraft.core.Direction.DOWN)) {
+            level.setBlock(pos, previous, Block.UPDATE_ALL);
+            ContainerAccess.insert(chest, taken);
+            return PlaceResult.DENIED;
+        }
+        return PlaceResult.PLACED;
+    }
+
+    private static void rememberStump(ServerLevel level, WorkerData data, Runtime runtime, BlockPos pos, BlockState state) {
+        if (!data.lumberjack().replantSaplings() || runtime.stump != null) {
+            return;
+        }
+        if (!level.getBlockState(pos.below()).is(BlockTags.DIRT)) {
+            return;
+        }
+        String sapling = SaplingKinds.saplingForLog(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+        if (sapling == null) {
+            return;
+        }
+        runtime.stump = pos.immutable();
+        runtime.stumpItem = sapling;
+    }
+
+    private static void collectTree(ServerLevel level, WorkerData data, Runtime runtime, BlockPos start) {
+        List<BlockPos> tree = new ArrayList<>();
+        ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+        String kind = SaplingKinds.saplingForLog(BuiltInRegistries.BLOCK.getKey(level.getBlockState(start).getBlock()).toString());
+        queue.add(start);
+        while (!queue.isEmpty() && tree.size() < TREE_LIMIT) {
+            BlockPos pos = queue.removeFirst();
+            if (tree.contains(pos) || !level.isLoaded(pos)) {
+                continue;
+            }
+            BlockState state = level.getBlockState(pos);
+            if (!state.is(BlockTags.LOGS) || !WorkVolumes.isDig(data, level.dimension().location(), pos)) {
+                continue;
+            }
+            String other = SaplingKinds.saplingForLog(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+            if (kind != null && !kind.equals(other)) {
+                continue;
+            }
+            tree.add(pos.immutable());
+            for (var direction : net.minecraft.core.Direction.values()) {
+                queue.add(pos.relative(direction));
+            }
+        }
+        runtime.tree = tree;
+        runtime.treeIndex = 0;
+        runtime.stump = null;
+        runtime.stumpItem = "";
+    }
+
+    private static boolean ensureTool(Villager villager, WorkerData data, Runtime runtime) {
+        boolean lumber = data.job() == WorkerJob.LUMBERJACK;
+        ItemStack hand = villager.getMainHandItem();
+        if ((lumber ? hand.is(ItemTags.AXES) : hand.is(ItemTags.PICKAXES)) && usable(hand)) {
+            return true;
+        }
+        returnTool(villager, data);
+        BlockPos chestPos = lumber ? data.lumberjack().toolChest().orElse(null) : data.miner().toolChest().orElse(null);
+        if (!(villager.level() instanceof ServerLevel level)) {
+            return false;
+        }
+        Container chest = ContainerAccess.open(level, chestPos);
+        if (chestPos == null || chest == null) {
+            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+            return false;
+        }
+        ItemStack tool = ContainerAccess.takeBest(chest, stack -> lumber ? stack.is(ItemTags.AXES) : stack.is(ItemTags.PICKAXES));
+        if (tool.isEmpty() || !usable(tool)) {
+            if (!tool.isEmpty()) {
+                ContainerAccess.insert(chest, tool);
+            }
+            pause(villager, data, runtime, ProblemCode.BROKEN_TOOL, "");
+            return false;
+        }
+        villager.setItemSlot(EquipmentSlot.MAINHAND, tool);
+        return true;
+    }
+
+    private static boolean destinationReady(ServerLevel level, Villager villager, WorkerData data, Runtime runtime, BlockState state) {
+        if (data.job() == WorkerJob.LUMBERJACK) {
+            if (data.lumberjack().logChest().isEmpty() || ContainerAccess.open(level, data.lumberjack().logChest().orElse(null)) == null) {
+                pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+                return false;
+            }
+            return true;
+        }
+        if (data.miner().regularChest().isEmpty()
+                || data.miner().valuablesChest().isEmpty()
+                || ContainerAccess.open(level, data.miner().regularChest().orElse(null)) == null
+                || ContainerAccess.open(level, data.miner().valuablesChest().orElse(null)) == null) {
+            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+            return false;
+        }
+        return true;
+    }
+
+    private enum Deposit {
+        OK,
+        MISSING,
+        FULL
+    }
+
+    private static Deposit putDrops(ServerLevel level, Villager villager, WorkerData data, List<ItemStack> drops) {
+        Deposit result = Deposit.OK;
+        for (ItemStack drop : drops) {
+            if (drop.isEmpty()) {
+                continue;
+            }
+            BlockPos chestPos = chestFor(data, drop);
+            Deposit one = store(level, villager, chestPos, drop.copy());
+            if (one != Deposit.OK) {
+                result = one;
+            }
+        }
+        return result;
+    }
+
+    private static BlockPos chestFor(WorkerData data, ItemStack drop) {
+        if (data.job() == WorkerJob.LUMBERJACK) {
+            if (isSapling(drop)) {
+                return data.lumberjack().saplingChest().orElse(null);
+            }
+            return data.lumberjack().logChest().orElse(null);
+        }
+        ResourceLocation id = BuiltInRegistries.ITEM.getKey(drop.getItem());
+        boolean valuable = data.miner().valuables().stream().anyMatch(id::equals);
+        return valuable ? data.miner().valuablesChest().orElse(null) : data.miner().regularChest().orElse(null);
+    }
+
+    private static Deposit store(ServerLevel level, Villager villager, BlockPos chestPos, ItemStack stack) {
+        if (chestPos == null) {
+            spawn(villager, stack);
+            return Deposit.OK;
+        }
+        Container chest = ContainerAccess.open(level, chestPos);
+        if (chest == null) {
+            spawn(villager, stack);
+            return Deposit.MISSING;
+        }
+        ItemStack left = ContainerAccess.insert(chest, stack);
+        if (!left.isEmpty()) {
+            spawn(villager, left);
+            return Deposit.FULL;
+        }
+        return Deposit.OK;
+    }
+
+    private enum BreakGate {
+        ALLOW,
+        /** Owner is offline. Keep the same cell and try again. */
+        WAIT,
+        /** Spawn protection, the world border, or a claim cancelled the break. */
+        SKIP
+    }
+
+    private static BreakGate ownerAllows(ServerLevel level, Villager villager, WorkerData data, BlockPos pos, BlockState state) {
+        ServerPlayer owner = owner(villager, data);
+        if (owner == null) {
+            return BreakGate.WAIT;
+        }
+        if (!level.mayInteract(owner, pos)) {
+            return BreakGate.SKIP;
+        }
+        BlockEvent.BreakEvent event = new BlockEvent.BreakEvent(level, pos, state, owner);
+        if (state.getBlock() instanceof GameMasterBlock && !owner.canUseGameMasterBlocks()) {
+            event.setCanceled(true);
+        }
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(event);
+        return event.isCanceled() ? BreakGate.SKIP : BreakGate.ALLOW;
+    }
+
+    private static void clearSolved(WorkerData data) {
+        ProblemCode code = data.problem().code();
+        if (code != ProblemCode.NONE && code != ProblemCode.HUNGRY && code != ProblemCode.HURT) {
+            data.setProblem(WorkerProblem.NONE);
+        }
+    }
+
+    private static boolean legal(ServerLevel level, Villager villager, WorkerData data, BlockPos pos, BlockState state, boolean ignoreReach) {
+        boolean reach = ignoreReach || (villager != null && inReach(villager, pos));
+        boolean lumber = data.job() != WorkerJob.LUMBERJACK
+                || state.is(BlockTags.LOGS)
+                || (data.lumberjack().clearLeaves() && state.is(BlockTags.LEAVES));
+        String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+        boolean whitelisted = data.breakWhitelist().stream().anyMatch(entry -> entry.toString().equals(id));
+        boolean reserved = reserved(level, data, pos);
+        return BreakRules.allow(
+                data.activity() == WorkerActivity.WORKING && (data.job() == WorkerJob.LUMBERJACK || data.job() == WorkerJob.MINER),
+                WorkVolumes.isDig(data, level.dimension().location(), pos) || WorkVolumes.isWall(data, level.dimension().location(), pos),
+                reach,
+                true,
+                state.getDestroySpeed(level, pos),
+                id,
+                state.hasBlockEntity(),
+                reserved,
+                whitelisted,
+                lumber);
+    }
+
+    private static boolean reserved(ServerLevel level, WorkerData data, BlockPos pos) {
+        if (homeBed(data, level, pos)) {
+            return true;
+        }
+        for (BlockPos linked : data.linkedPositions()) {
+            if (linked.equals(pos) || partner(level, linked).equals(pos)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static BlockPos partner(ServerLevel level, BlockPos pos) {
+        if (!level.isLoaded(pos)) {
+            return pos;
+        }
+        BlockState state = level.getBlockState(pos);
+        if (state.getBlock() instanceof ChestBlock && state.getValue(ChestBlock.TYPE) != ChestType.SINGLE) {
+            return pos.relative(ChestBlock.getConnectedDirection(state));
+        }
+        return pos;
+    }
+
+    private static boolean homeBed(WorkerData data, ServerLevel level, BlockPos pos) {
+        if (data.homeBed() == null || !data.homeBed().dimension().equals(level.dimension())) {
+            return false;
+        }
+        BlockPos bed = data.homeBed().pos();
+        if (bed.equals(pos)) {
+            return true;
+        }
+        if (!level.isLoaded(bed)) {
+            return false;
+        }
+        BlockState state = level.getBlockState(bed);
+        if (!state.is(BlockTags.BEDS) || !state.hasProperty(BedBlock.PART) || !state.hasProperty(BedBlock.FACING)) {
+            return false;
+        }
+        BedPart part = state.getValue(BedBlock.PART);
+        var facing = state.getValue(BedBlock.FACING);
+        BlockPos other = part == BedPart.HEAD ? bed.relative(facing.getOpposite()) : bed.relative(facing);
+        return other.equals(pos);
+    }
+
+    private static boolean inReach(Villager villager, BlockPos pos) {
+        return villager.distanceToSqr(Vec3.atCenterOf(pos)) <= ActionPace.REACH_SQR;
+    }
+
+    private static void walk(Villager villager, Runtime runtime) {
+        if (runtime.walkTo == null) {
+            return;
+        }
+        Vec3 dest = Vec3.atCenterOf(runtime.walkTo);
+        Vec3 from = villager.position();
+        Vec3 delta = dest.subtract(from);
+        double length = delta.length();
+        if (length > 24.0) {
+            dest = from.add(delta.scale(24.0 / length));
+        }
+        villager.getNavigation().moveTo(dest.x, dest.y, dest.z, 0.55);
+    }
+
+    private static void stuck(ServerLevel level, Villager villager, WorkerData data, Runtime runtime) {
+        if (level == null || runtime.walkTo == null) {
+            return;
+        }
+        long now = level.getGameTime();
+        BlockPos here = villager.blockPosition();
+        if (runtime.stuckPos == null || !runtime.stuckPos.equals(here)) {
+            runtime.stuckPos = here;
+            runtime.stuckSince = now;
+            runtime.stuckRetried = false;
+            if (data.problem().code() == ProblemCode.STUCK) {
+                data.setProblem(WorkerProblem.NONE);
+            }
+            return;
+        }
+        if (runtime.stuckSince == Long.MIN_VALUE) {
+            runtime.stuckSince = now;
+            return;
+        }
+        if (now - runtime.stuckSince < ActionPace.STUCK_TICKS) {
+            return;
+        }
+        if (!runtime.stuckRetried) {
+            runtime.stuckRetried = true;
+            runtime.stuckSince = now;
+            villager.getNavigation().stop();
+            walk(villager, runtime);
+            return;
+        }
+        pause(villager, data, runtime, ProblemCode.STUCK, "");
+    }
+
+    private static void pause(Villager villager, WorkerData data, Runtime runtime, ProblemCode code, String subject) {
+        BlockPos breaking = runtime.breaking;
+        data.setActivity(WorkerActivity.STOPPED);
+        OwnerNotices.report(villager, data, code, subject);
+        returnTool(villager, data);
+        runtime.breaking = null;
+        runtime.walkTo = null;
+        runtime.controlling = false;
+        if (breaking != null && villager.level() instanceof ServerLevel level) {
+            level.destroyBlockProgress(villager.getId(), breaking, -1);
+        }
+    }
+
+    private static void release(Villager villager, WorkerData data, Runtime runtime) {
+        if (!runtime.controlling && runtime.walkTo == null) {
+            returnTool(villager, data);
+            return;
+        }
+        runtime.controlling = false;
+        runtime.walkTo = null;
+        runtime.breaking = null;
+        villager.getNavigation().stop();
+        returnTool(villager, data);
+    }
+
+    private static void returnTool(Villager villager, WorkerData data) {
+        ItemStack hand = villager.getMainHandItem();
+        if (!isTool(hand) || !(villager.level() instanceof ServerLevel level)) {
+            return;
+        }
+        BlockPos chestPos = data.job() == WorkerJob.MINER
+                ? data.miner().toolChest().orElse(data.lumberjack().toolChest().orElse(null))
+                : data.lumberjack().toolChest().orElse(data.miner().toolChest().orElse(null));
+        Container chest = ContainerAccess.open(level, chestPos);
+        if (chest == null) {
+            return;
+        }
+        ItemStack left = ContainerAccess.insert(chest, hand.copy());
+        villager.setItemSlot(EquipmentSlot.MAINHAND, left);
+    }
+
+    private static boolean usable(ItemStack stack) {
+        return !stack.isEmpty() && (!stack.isDamageableItem() || stack.getMaxDamage() - stack.getDamageValue() > 1);
+    }
+
+    private static boolean isTool(ItemStack stack) {
+        return stack.is(ItemTags.AXES) || stack.is(ItemTags.PICKAXES);
+    }
+
+    private static boolean isSapling(ItemStack stack) {
+        return stack.is(ItemTags.SAPLINGS)
+                || stack.is(Items.MANGROVE_PROPAGULE)
+                || stack.is(Items.CRIMSON_FUNGUS)
+                || stack.is(Items.WARPED_FUNGUS);
+    }
+
+    private static float toolSpeed(BlockState state, ItemStack tool) {
+        float speed = tool.getDestroySpeed(state);
+        return speed <= 0.0F ? 1.0F : speed;
+    }
+
+    private static ResourceLocation wallId(WorkerData data) {
+        String raw = data.miner().wallBlock();
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        return ResourceLocation.tryParse(raw);
+    }
+
+    private static void clearOtherBedHalf(ServerLevel level, BlockPos pos, BlockState state) {
+        if (!state.hasProperty(BedBlock.PART) || !state.hasProperty(BedBlock.FACING)) {
+            return;
+        }
+        BedPart part = state.getValue(BedBlock.PART);
+        var facing = state.getValue(BedBlock.FACING);
+        BlockPos other = part == BedPart.HEAD ? pos.relative(facing.getOpposite()) : pos.relative(facing);
+        if (level.getBlockState(other).is(BlockTags.BEDS)) {
+            level.setBlock(other, level.getFluidState(other).createLegacyBlock(), Block.UPDATE_ALL);
+        }
+    }
+
+    private static void spawn(Villager villager, ItemStack stack) {
+        if (!stack.isEmpty()) {
+            villager.spawnAtLocation(stack);
+        }
+    }
+
+    private static ServerPlayer owner(Villager villager, WorkerData data) {
+        if (villager.getServer() == null) {
+            return null;
+        }
+        return villager.getServer().getPlayerList().getPlayer(data.owner());
+    }
+
+    private static String signature(WorkerData data) {
+        return data.job().id()
+                + "|" + data.miner().mode().id()
+                + "|" + data.lumberjack().clearLeaves()
+                + "|" + data.lumberjack().replantSaplings()
+                + "|" + data.lumberjack().area().map(area -> area.format()).orElse("")
+                + "|" + data.miner().area().map(area -> area.format()).orElse("")
+                + "|" + data.miner().origin().map(origin -> origin.format()).orElse("")
+                + "|" + data.miner().width()
+                + "|" + data.miner().height()
+                + "|" + data.miner().length()
+                + "|" + data.miner().branchSpacing()
+                + "|" + data.miner().branchLength()
+                + "|" + data.miner().shaftWidth()
+                + "|" + data.miner().shaftDepth()
+                + "|" + data.miner().shaftUp()
+                + "|" + data.miner().wallBlock();
+    }
+}

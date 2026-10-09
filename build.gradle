@@ -116,6 +116,9 @@ configurations {
 }
 
 dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
     // Create 6.0.x is an optional runtime dependency added with the builder (M3).
     // It is intentionally not on the compile classpath of this skeleton.
 
@@ -183,6 +186,15 @@ publishing {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
 }
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+// Geometry tests construct BlockPos and codecs. Those classes live on the main compile
+// classpath. Extending the test configurations keeps the game from booting.
+configurations.testCompileClasspath.extendsFrom(configurations.compileClasspath)
+configurations.testRuntimeClasspath.extendsFrom(configurations.compileClasspath)
 
 // IDEA no longer automatically downloads sources/javadoc jars for dependencies, so we need to explicitly enable the behavior.
 idea {
