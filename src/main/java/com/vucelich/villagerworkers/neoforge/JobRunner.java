@@ -1,6 +1,7 @@
 package com.vucelich.villagerworkers.neoforge;
 
 import com.vucelich.villagerworkers.common.ActionPace;
+import com.vucelich.villagerworkers.common.BreakOutcome;
 import com.vucelich.villagerworkers.common.BreakRules;
 import com.vucelich.villagerworkers.common.ProblemCode;
 import com.vucelich.villagerworkers.common.SaplingKinds;
@@ -16,6 +17,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -23,6 +25,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.Container;
+import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -36,13 +39,20 @@ import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.BeehiveBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.BrewingStandBlock;
+import net.minecraft.world.level.block.CampfireBlock;
 import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.ChiseledBookShelfBlock;
 import net.minecraft.world.level.block.CrafterBlock;
+import net.minecraft.world.level.block.DecoratedPotBlock;
 import net.minecraft.world.level.block.DispenserBlock;
 import net.minecraft.world.level.block.GameMasterBlock;
 import net.minecraft.world.level.block.HopperBlock;
+import net.minecraft.world.level.block.JukeboxBlock;
+import net.minecraft.world.level.block.LecternBlock;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
+import net.minecraft.world.level.block.entity.CampfireBlockEntity;
+import net.minecraft.world.level.block.entity.LecternBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
@@ -430,7 +440,7 @@ public final class JobRunner {
         List<ItemStack> drops = tileDrops
                 ? new ArrayList<>(Block.getDrops(state, level, pos, entity, villager, tool))
                 : new ArrayList<>();
-        List<ItemStack> spilled = takeSpilledContents(state, entity, tileDrops, drops);
+        List<ItemStack> spilled = takeSpilledContents(level, pos, state, entity, tileDrops, drops);
         if (state.is(BlockTags.LOGS)) {
             rememberStump(level, data, runtime, pos, state);
         }
@@ -441,15 +451,18 @@ public final class JobRunner {
         if (ownerPlayer != null && !creativeDestroyDupes(ownerPlayer, state)) {
             state.getBlock().playerWillDestroy(level, pos, state, ownerPlayer);
         }
-        if (!level.getBlockState(pos).isAir()) {
-            level.destroyBlock(pos, false, villager);
-        }
+        boolean originalRemains = level.getBlockState(pos).is(state.getBlock());
+        boolean removed = originalRemains && level.destroyBlock(pos, false, villager);
+        originalRemains = level.getBlockState(pos).is(state.getBlock());
         level.destroyBlockProgress(villager.getId(), pos, -1);
-        if (!level.getBlockState(pos).isAir()) {
-            restoreSpilled(entity, spilled);
+        if (BreakOutcome.shouldRestore(originalRemains) || !BreakOutcome.succeeded(removed, originalRemains)) {
+            restoreSpilled(level, pos, entity, spilled);
             runtime.breaking = null;
             runtime.progress = 0;
             return;
+        }
+        if (!tileDrops) {
+            spillLikeVanilla(level, pos, spilled);
         }
         if (tool.isDamageableItem()) {
             tool.hurtAndBreak(1, villager, EquipmentSlot.MAINHAND);
@@ -462,11 +475,7 @@ public final class JobRunner {
         if (runtime.treeIndex < runtime.tree.size() && pos.equals(runtime.tree.get(runtime.treeIndex))) {
             runtime.treeIndex++;
         }
-        if (deposit != Deposit.OK) {
-            pause(villager, data, runtime, deposit == Deposit.MISSING ? ProblemCode.MISSING_CHEST : ProblemCode.CHEST_FULL, "");
-        } else {
-            clearSolved(data);
-        }
+        pauseForDeposit(villager, data, runtime, deposit);
     }
 
     private static void placeWall(ServerLevel level, Villager villager, WorkerData data, Runtime runtime, BlockPos pos) {
@@ -478,11 +487,11 @@ public final class JobRunner {
         if (owner(villager, data) == null) {
             return;
         }
-        Container chest = openLinked(level, villager, data, data.miner().regularChest().orElse(null));
-        if (data.miner().regularChest().isEmpty() || chest == null) {
-            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+        BlockPos chestPos = data.miner().regularChest().orElse(null);
+        if (!chestAvailable(level, villager, data, runtime, chestPos)) {
             return;
         }
+        Container chest = openLinked(level, villager, data, chestPos);
         if (!wallItemAllowed(data, wall)) {
             pause(villager, data, runtime, ProblemCode.OUT_OF_MATERIALS, wall.toString());
             return;
@@ -523,13 +532,13 @@ public final class JobRunner {
             runtime.stumpItem = item;
             return;
         }
-        Container chest = openLinked(level, villager, data, data.lumberjack().saplingChest().orElse(null));
-        if (data.lumberjack().saplingChest().isEmpty() || chest == null) {
-            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+        BlockPos chestPos = data.lumberjack().saplingChest().orElse(null);
+        if (!chestAvailable(level, villager, data, runtime, chestPos)) {
             runtime.stump = pos;
             runtime.stumpItem = item;
             return;
         }
+        Container chest = openLinked(level, villager, data, chestPos);
         ResourceLocation id = ResourceLocation.parse(item);
         PlaceResult placed = takeAndPlace(level, villager, data, chest, id, pos);
         if (placed == PlaceResult.WAIT) {
@@ -568,7 +577,7 @@ public final class JobRunner {
             Deposit deposit = store(level, villager, data, chestPos, stack.copy());
             entity.discard();
             if (deposit != Deposit.OK) {
-                pause(villager, data, runtime, deposit == Deposit.MISSING ? ProblemCode.MISSING_CHEST : ProblemCode.CHEST_FULL, "");
+                pauseForDeposit(villager, data, runtime, deposit);
                 return;
             }
         }
@@ -678,11 +687,10 @@ public final class JobRunner {
         if (owner(villager, data) == null) {
             return false;
         }
-        Container chest = openLinked(level, villager, data, chestPos);
-        if (chestPos == null || chest == null) {
-            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+        if (!chestAvailable(level, villager, data, runtime, chestPos)) {
             return false;
         }
+        Container chest = openLinked(level, villager, data, chestPos);
         ItemStack tool = ContainerAccess.takeBest(chest, stack -> lumber ? stack.is(ItemTags.AXES) : stack.is(ItemTags.PICKAXES));
         if (tool.isEmpty() || !usable(tool)) {
             if (!tool.isEmpty()) {
@@ -700,25 +708,16 @@ public final class JobRunner {
             return false;
         }
         if (data.job() == WorkerJob.LUMBERJACK) {
-            if (data.lumberjack().logChest().isEmpty() || openLinked(level, villager, data, data.lumberjack().logChest().orElse(null)) == null) {
-                pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
-                return false;
-            }
-            return true;
+            return chestAvailable(level, villager, data, runtime, data.lumberjack().logChest().orElse(null));
         }
-        if (data.miner().regularChest().isEmpty()
-                || data.miner().valuablesChest().isEmpty()
-                || openLinked(level, villager, data, data.miner().regularChest().orElse(null)) == null
-                || openLinked(level, villager, data, data.miner().valuablesChest().orElse(null)) == null) {
-            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
-            return false;
-        }
-        return true;
+        return chestAvailable(level, villager, data, runtime, data.miner().regularChest().orElse(null))
+                && chestAvailable(level, villager, data, runtime, data.miner().valuablesChest().orElse(null));
     }
 
     private enum Deposit {
         OK,
         MISSING,
+        NO_ACCESS,
         FULL
     }
 
@@ -753,6 +752,11 @@ public final class JobRunner {
         if (chestPos == null) {
             spawn(villager, stack);
             return Deposit.OK;
+        }
+        ContainerAccess.Failure failure = ContainerAccess.failure(level, chestPos, owner(villager, data));
+        if (failure != ContainerAccess.Failure.NONE) {
+            spawn(villager, stack);
+            return failure == ContainerAccess.Failure.NO_ACCESS ? Deposit.NO_ACCESS : Deposit.MISSING;
         }
         Container chest = openLinked(level, villager, data, chestPos);
         if (chest == null) {
@@ -1030,49 +1034,146 @@ public final class JobRunner {
         return ContainerAccess.open(level, pos, owner(villager, data));
     }
 
+    private static boolean chestAvailable(
+            ServerLevel level, Villager villager, WorkerData data, Runtime runtime, BlockPos pos) {
+        if (pos == null) {
+            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+            return false;
+        }
+        ContainerAccess.Failure failure = ContainerAccess.failure(level, pos, owner(villager, data));
+        if (failure == ContainerAccess.Failure.NO_ACCESS) {
+            pause(villager, data, runtime, ProblemCode.NO_ACCESS, "");
+            return false;
+        }
+        if (failure != ContainerAccess.Failure.NONE) {
+            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
+            return false;
+        }
+        return true;
+    }
+
+    private static void pauseForDeposit(Villager villager, WorkerData data, Runtime runtime, Deposit deposit) {
+        if (deposit == Deposit.OK) {
+            clearSolved(data);
+            return;
+        }
+        ProblemCode code = switch (deposit) {
+            case NO_ACCESS -> ProblemCode.NO_ACCESS;
+            case FULL -> ProblemCode.CHEST_FULL;
+            case MISSING, OK -> ProblemCode.MISSING_CHEST;
+        };
+        pause(villager, data, runtime, code, "");
+    }
+
     /**
-     * Chests, barrels, and the other containers that drop their inventory in {@code onRemove} would spill those
-     * items on the ground. Move them into the haul list when tile drops are enabled, and always clear them so a
-     * failed or suppressed drop cannot leave a second copy in the world.
+     * Containers that drop their inventory from {@code onRemove} are emptied first. With tile drops on, those items
+     * join the haul. With tile drops off they are spilled later, the way vanilla {@code Containers.dropContents} does,
+     * and only after the break actually removes the block.
      */
-    private static List<ItemStack> takeSpilledContents(BlockState state, BlockEntity entity, boolean tileDrops, List<ItemStack> drops) {
+    private static List<ItemStack> takeSpilledContents(
+            ServerLevel level, BlockPos pos, BlockState state, BlockEntity entity, boolean tileDrops, List<ItemStack> drops) {
+        if (entity instanceof LecternBlockEntity lectern && state.getBlock() instanceof LecternBlock) {
+            return takeLectern(level, pos, state, lectern, tileDrops, drops);
+        }
+        if (entity instanceof CampfireBlockEntity campfire && state.getBlock() instanceof CampfireBlock) {
+            return takeItemList(campfire.getItems(), tileDrops, drops);
+        }
         if (!(entity instanceof Container container) || !spillsContents(state.getBlock())) {
             return List.of();
         }
         List<ItemStack> spilled = new ArrayList<>();
+        boolean any = false;
         for (int slot = 0; slot < container.getContainerSize(); slot++) {
             ItemStack stack = container.getItem(slot);
+            spilled.add(stack.copy());
             if (stack.isEmpty()) {
                 continue;
             }
-            spilled.add(stack.copy());
+            any = true;
+            if (tileDrops) {
+                drops.add(stack.copy());
+            }
             container.setItem(slot, ItemStack.EMPTY);
         }
-        if (!spilled.isEmpty()) {
+        if (any) {
             container.setChanged();
         }
+        return any ? spilled : List.of();
+    }
+
+    private static List<ItemStack> takeLectern(
+            ServerLevel level, BlockPos pos, BlockState state, LecternBlockEntity lectern, boolean tileDrops, List<ItemStack> drops) {
+        ItemStack book = lectern.getBook();
+        if (book.isEmpty()) {
+            return List.of();
+        }
+        List<ItemStack> spilled = List.of(book.copy());
+        lectern.clearContent();
+        if (state.getValue(LecternBlock.HAS_BOOK)) {
+            level.setBlock(pos, state.setValue(LecternBlock.HAS_BOOK, false), Block.UPDATE_CLIENTS);
+        }
         if (tileDrops) {
-            drops.addAll(spilled);
+            drops.add(book.copy());
         }
         return spilled;
     }
 
-    private static void restoreSpilled(BlockEntity entity, List<ItemStack> spilled) {
-        if (spilled.isEmpty() || !(entity instanceof Container container)) {
+    private static List<ItemStack> takeItemList(NonNullList<ItemStack> items, boolean tileDrops, List<ItemStack> drops) {
+        List<ItemStack> spilled = new ArrayList<>();
+        boolean any = false;
+        for (int slot = 0; slot < items.size(); slot++) {
+            ItemStack stack = items.get(slot);
+            spilled.add(stack.copy());
+            if (stack.isEmpty()) {
+                continue;
+            }
+            any = true;
+            if (tileDrops) {
+                drops.add(stack.copy());
+            }
+            items.set(slot, ItemStack.EMPTY);
+        }
+        return any ? spilled : List.of();
+    }
+
+    private static void restoreSpilled(ServerLevel level, BlockPos pos, BlockEntity entity, List<ItemStack> spilled) {
+        if (spilled.isEmpty()) {
             return;
         }
-        int slot = 0;
-        for (ItemStack stack : spilled) {
-            while (slot < container.getContainerSize() && !container.getItem(slot).isEmpty()) {
-                slot++;
+        if (entity instanceof LecternBlockEntity lectern) {
+            ItemStack book = spilled.get(0).copy();
+            lectern.setBook(book);
+            BlockState now = level.getBlockState(pos);
+            if (now.getBlock() instanceof LecternBlock && now.hasProperty(LecternBlock.HAS_BOOK)) {
+                level.setBlock(pos, now.setValue(LecternBlock.HAS_BOOK, !book.isEmpty()), Block.UPDATE_CLIENTS);
             }
-            if (slot >= container.getContainerSize()) {
-                break;
-            }
-            container.setItem(slot, stack.copy());
-            slot++;
+            return;
         }
-        container.setChanged();
+        if (entity instanceof CampfireBlockEntity campfire) {
+            NonNullList<ItemStack> items = campfire.getItems();
+            for (int slot = 0; slot < spilled.size() && slot < items.size(); slot++) {
+                items.set(slot, spilled.get(slot).copy());
+            }
+            return;
+        }
+        if (entity instanceof Container container) {
+            for (int slot = 0; slot < spilled.size() && slot < container.getContainerSize(); slot++) {
+                container.setItem(slot, spilled.get(slot).copy());
+            }
+            container.setChanged();
+        }
+    }
+
+    private static void spillLikeVanilla(ServerLevel level, BlockPos pos, List<ItemStack> spilled) {
+        NonNullList<ItemStack> dumping = NonNullList.create();
+        for (ItemStack stack : spilled) {
+            if (!stack.isEmpty()) {
+                dumping.add(stack.copy());
+            }
+        }
+        if (!dumping.isEmpty()) {
+            Containers.dropContents(level, pos, dumping);
+        }
     }
 
     private static boolean spillsContents(Block block) {
@@ -1082,7 +1183,12 @@ public final class JobRunner {
                 || block instanceof BrewingStandBlock
                 || block instanceof CrafterBlock
                 || block instanceof DispenserBlock
-                || block instanceof HopperBlock;
+                || block instanceof HopperBlock
+                || block instanceof JukeboxBlock
+                || block instanceof LecternBlock
+                || block instanceof ChiseledBookShelfBlock
+                || block instanceof CampfireBlock
+                || block instanceof DecoratedPotBlock;
     }
 
     /** Creative {@code playerWillDestroy} spawns a second shulker or beehive item on top of the loot drop. */

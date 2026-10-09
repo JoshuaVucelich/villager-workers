@@ -9,6 +9,7 @@ public enum ProblemCode {
     BROKEN_TOOL,
     OUT_OF_MATERIALS,
     MISSING_CHEST,
+    NO_ACCESS,
     CHEST_FULL,
     STUCK,
     BLOCKED;

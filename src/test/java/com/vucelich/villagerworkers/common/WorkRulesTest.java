@@ -132,6 +132,18 @@ class WorkRulesTest {
                 "[Birch] lumberjack, working, rested, 20/20 health. chest full",
                 StatusText.line("Birch", WorkerJob.LUMBERJACK, WorkerActivity.WORKING, true, 20, 20, false, false, full));
         assertEquals("[Birch] is out of minecraft:oak_sapling.", StatusText.ownerAlert("Birch", ProblemCode.OUT_OF_MATERIALS, "minecraft:oak_sapling"));
+        WorkerProblem locked = new WorkerProblem(ProblemCode.NO_ACCESS, "");
+        assertEquals("cannot open a container", StatusText.problem(false, false, locked));
+        assertEquals("[Birch] cannot open that container.", StatusText.ownerAlert("Birch", ProblemCode.NO_ACCESS, ""));
+    }
+
+    @Test
+    void waterloggedBreakSucceedsWhenTheBlockIsGone() {
+        assertTrue(BreakOutcome.succeeded(true, false));
+        assertTrue(BreakOutcome.succeeded(false, false));
+        assertFalse(BreakOutcome.succeeded(false, true));
+        assertFalse(BreakOutcome.shouldRestore(false));
+        assertTrue(BreakOutcome.shouldRestore(true));
     }
 
     @Test

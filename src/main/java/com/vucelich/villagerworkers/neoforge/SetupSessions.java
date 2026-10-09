@@ -18,10 +18,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.BarrelBlock;
 import net.minecraft.world.level.block.ChestBlock;
-import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
@@ -147,23 +146,24 @@ public final class SetupSessions {
             player.sendSystemMessage(Component.literal("That block is more than 8 blocks from the worker."));
             return true;
         }
-        if (!player.level().mayInteract(player, pos)) {
+        if (!(player.level() instanceof ServerLevel level)) {
+            return true;
+        }
+        if (!ContainerAccess.mayUse(level, pos, player)) {
             player.sendSystemMessage(Component.literal("You cannot interact with that block."));
             return true;
         }
-        BlockEntity blockEntity = player.level().getBlockEntity(pos);
-        if (blockEntity instanceof BaseContainerBlockEntity container && !container.canOpen(player)) {
+        if (ContainerAccess.denyIfLocked(level, pos, player)) {
             return true;
         }
-        BlockState state = player.level().getBlockState(pos);
+        BlockState state = level.getBlockState(pos);
         ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         if (session.link == LinkTarget.SCHEMATIC) {
             if (!net.neoforged.fml.ModList.get().isLoaded("create")) {
                 player.sendSystemMessage(Component.literal("Create is not installed, so there is no schematic to link."));
                 return true;
             }
-            if (!(player.level() instanceof net.minecraft.server.level.ServerLevel level)
-                    || !CreateSchematics.containsSchematic(level, pos)) {
+            if (!CreateSchematics.containsSchematic(level, pos)) {
                 player.sendSystemMessage(Component.literal("Link a schematicannon that already has a schematic."));
                 return true;
             }

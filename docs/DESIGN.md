@@ -256,6 +256,7 @@ Problems are sent as a system chat line to the owner only, and only if the owner
 | `BROKEN_TOOL` | The equipped tool has 1 durability left, or there is no usable tool in the tool chest. M2 |
 | `OUT_OF_MATERIALS` | A place action needs an item that is not in the linked chests. Includes the item id. M2 and M3 |
 | `MISSING_CHEST` | A linked chest position is empty or not a container. M2 |
+| `NO_ACCESS` | The linked container is locked, or the owner may not interact with it. Work pauses once. A double chest checks both halves. |
 | `CHEST_FULL` | The destination chest cannot take the drops. Drops stay on the ground at the worker, and work pauses. M2 |
 | `STUCK` | The worker has a target and has not moved for 10 seconds. Retry the path once. If still stuck, pause. M2 |
 | `BLOCKED` | Builder found a solid block that does not match the schematic. Skip that position. M3 |
@@ -283,7 +284,7 @@ Whitelist entries exempt only rules 6 and 7. They do not exempt the volume, the 
 
 Drops are inserted by item id: valuables list to the valuables chest, everything else to the regular chest. Lumberjack logs go to the log chest, and saplings the worker picks up go to the sapling chest. Nothing is voided. A full or missing chest pauses the job and messages the owner.
 
-The worker honors the `doTileDrops` game rule. When it is off, the block is removed and nothing is kept, including what was inside a chest. When it is on, a broken chest, barrel, or other container that would spill on removal has its contents hauled with the block drop instead of dropped on the ground. A creative-mode owner does not run the creative destroy hook for a shulker box or beehive, so those blocks are not dropped a second time.
+The worker honors the `doTileDrops` game rule for the block item. When it is off, the block is removed and the block item is not kept, but items that were inside a container still spill on the ground the way vanilla does. When it is on, those contents are hauled with the block drop instead of spilled. A break counts as finished when `destroyBlock` succeeds or the original block is gone, including when a waterlogged block leaves water behind, so that chest's contents are still hauled. A creative-mode owner does not run the creative destroy hook for a shulker box or beehive, so those blocks are not dropped a second time.
 
 Tools come from the tool chest: an axe for the lumberjack, a pickaxe for the miner. The worker equips one, and vanilla durability applies. At 1 remaining durability the worker stops, returns the tool if it can, and messages the owner. On death the equipped tool drops with the villager. On stop or idle the tool is put back in the tool chest when that chest has room.
 

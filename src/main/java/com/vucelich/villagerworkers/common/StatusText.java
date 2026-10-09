@@ -63,6 +63,7 @@ public final class StatusText {
             case BROKEN_TOOL -> "[" + who + "] needs a new tool.";
             case OUT_OF_MATERIALS -> "[" + who + "] is out of " + item + ".";
             case MISSING_CHEST -> "[" + who + "] is missing " + (item.equals("materials") ? "a chest" : item) + ".";
+            case NO_ACCESS -> "[" + who + "] cannot open that container.";
             case CHEST_FULL -> "[" + who + "] has a full chest.";
             case STUCK -> "[" + who + "] is stuck.";
             case BLOCKED -> "[" + who + "] is blocked at " + item + ".";
@@ -90,6 +91,7 @@ public final class StatusText {
             case BLOCKED -> "blocked at " + subject;
             case BROKEN_TOOL -> "needs a tool";
             case MISSING_CHEST -> subject.isBlank() ? "missing chest" : "missing " + subject;
+            case NO_ACCESS -> "cannot open a container";
             case CHEST_FULL -> "chest full";
             case STUCK -> "stuck";
             default -> work.code().id().replace('_', ' ');

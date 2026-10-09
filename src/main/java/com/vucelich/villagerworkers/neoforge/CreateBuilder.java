@@ -159,7 +159,10 @@ public final class CreateBuilder {
                 yield Step.CONTINUE;
             }
             case MISSING -> {
-                if (chests == null) {
+                ProblemCode access = chestProblem(level, data, ownerPlayer);
+                if (access == ProblemCode.NO_ACCESS) {
+                    pause(villager, data, ProblemCode.NO_ACCESS, "");
+                } else if (chests == null) {
                     pause(villager, data, ProblemCode.MISSING_CHEST, "a material chest");
                 } else {
                     String item = firstMissing(requirement);
@@ -249,6 +252,21 @@ public final class CreateBuilder {
             }
         }
         return open.isEmpty() ? null : open;
+    }
+
+    /** None of the material chests opened. A lock or claim is {@code NO_ACCESS}; an empty link is {@code MISSING_CHEST}. */
+    private static ProblemCode chestProblem(ServerLevel level, WorkerData data, ServerPlayer owner) {
+        boolean denied = false;
+        for (BlockPos pos : data.builder().materialChests()) {
+            ContainerAccess.Failure failure = ContainerAccess.failure(level, pos, owner);
+            if (failure == ContainerAccess.Failure.NONE) {
+                return null;
+            }
+            if (failure == ContainerAccess.Failure.NO_ACCESS) {
+                denied = true;
+            }
+        }
+        return denied ? ProblemCode.NO_ACCESS : ProblemCode.MISSING_CHEST;
     }
 
     private static boolean hasAll(List<Container> chests, ItemRequirement requirement) {
