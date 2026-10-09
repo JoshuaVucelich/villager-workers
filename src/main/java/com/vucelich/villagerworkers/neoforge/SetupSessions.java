@@ -142,15 +142,17 @@ public final class SetupSessions {
         BlockState state = player.level().getBlockState(pos);
         ResourceLocation id = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         if (session.link == LinkTarget.SCHEMATIC) {
-            if (!"create".equals(id.getNamespace()) || !id.getPath().contains("schematic")) {
-                String message = net.neoforged.fml.ModList.get().isLoaded("create")
-                        ? "Link a Create schematic block."
-                        : "Create is not installed, so there is no schematic to link.";
-                player.sendSystemMessage(Component.literal(message));
+            if (!net.neoforged.fml.ModList.get().isLoaded("create")) {
+                player.sendSystemMessage(Component.literal("Create is not installed, so there is no schematic to link."));
+                return true;
+            }
+            if (!(player.level() instanceof net.minecraft.server.level.ServerLevel level)
+                    || !CreateSchematics.containsSchematic(level, pos)) {
+                player.sendSystemMessage(Component.literal("Link a schematicannon that already has a schematic."));
                 return true;
             }
             data.setBuilder(data.builder().withSchematic(Optional.of(pos)));
-            player.sendSystemMessage(Component.literal("Schematic linked. The builder does not place blocks yet."));
+            player.sendSystemMessage(Component.literal("Schematic linked."));
         } else if (!isLinkableChest(state, id)) {
             player.sendSystemMessage(Component.literal("That is not a chest or barrel."));
             return true;

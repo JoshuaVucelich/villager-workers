@@ -40,6 +40,7 @@ import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.util.BlockSnapshot;
 import net.neoforged.neoforge.event.EventHooks;
 import net.neoforged.neoforge.event.entity.living.LivingDropsEvent;
@@ -89,16 +90,24 @@ public final class JobRunner {
             return;
         }
         Runtime runtime = RUNTIMES.computeIfAbsent(villager.getUUID(), id -> new Runtime());
-        if (data.activity() != WorkerActivity.WORKING && data.activity() != WorkerActivity.COMING) {
-            release(villager, data, runtime);
-            return;
-        }
         if (data.activity() == WorkerActivity.COMING) {
             returnTool(villager, data);
             come(villager, data, runtime);
             return;
         }
-        if (data.job() != WorkerJob.LUMBERJACK && data.job() != WorkerJob.MINER) {
+        if (data.job() == WorkerJob.BUILDER) {
+            if (ModList.get().isLoaded("create")) {
+                CreateBuilder.tick(villager, data);
+            } else if (data.activity() == WorkerActivity.WORKING) {
+                data.setActivity(WorkerActivity.STOPPED);
+                OwnerNotices.report(villager, data, ProblemCode.MISSING_CHEST, "Create");
+            }
+            if (data.activity() != WorkerActivity.WORKING) {
+                release(villager, data, runtime);
+            }
+            return;
+        }
+        if (data.activity() != WorkerActivity.WORKING) {
             release(villager, data, runtime);
             return;
         }
@@ -169,6 +178,9 @@ public final class JobRunner {
             return;
         }
         RUNTIMES.remove(villager.getUUID());
+        if (ModList.get().isLoaded("create")) {
+            CreateBuilder.forget(villager.getUUID());
+        }
         ItemStack hand = villager.getMainHandItem();
         if (!isTool(hand)) {
             return;

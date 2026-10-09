@@ -27,7 +27,8 @@ sourceSets.main.resources {
 }
 
 repositories {
-    // Add here additional repositories if required by some of the dependencies below.
+    maven { url = "https://maven.createmod.net" } // Create, Ponder, Flywheel
+    maven { url = "https://maven.ithundxr.dev/snapshots" } // Registrate
 }
 
 base {
@@ -119,8 +120,15 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
-    // Create 6.0.x is an optional runtime dependency added with the builder (M3).
-    // It is intentionally not on the compile classpath of this skeleton.
+    // Create 6.0.x is optional. The slim jar is compile-only so this mod still loads without it.
+    compileOnly("com.simibubi.create:create-${minecraft_version}:${create_version}:slim") { transitive = false }
+    compileOnly("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
+    compileOnly("dev.engine-room.flywheel:flywheel-neoforge-api-${minecraft_version}:${flywheel_version}")
+    compileOnly("com.tterrag.registrate:Registrate:${registrate_version}")
+    localRuntime("com.simibubi.create:create-${minecraft_version}:${create_version}")
+    localRuntime("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
+    localRuntime("dev.engine-room.flywheel:flywheel-neoforge-${minecraft_version}:${flywheel_version}")
+    localRuntime("com.tterrag.registrate:Registrate:${registrate_version}")
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime

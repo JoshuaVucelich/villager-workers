@@ -135,6 +135,16 @@ class WorkRulesTest {
     }
 
     @Test
+    void builderPlacesOnlyIntoReplaceableCells() {
+        assertEquals(PlacementRules.Choice.SKIP, PlacementRules.choose(true, false, true, true));
+        assertEquals(PlacementRules.Choice.PLACE, PlacementRules.choose(false, false, true, true));
+        assertEquals(PlacementRules.Choice.MISSING, PlacementRules.choose(false, false, true, false));
+        assertEquals(PlacementRules.Choice.BLOCKED, PlacementRules.choose(false, false, false, true));
+        assertEquals(PlacementRules.Choice.SKIP, PlacementRules.choose(false, true, true, false));
+        assertEquals(PlacementRules.Choice.BLOCKED, PlacementRules.choose(false, true, false, true));
+    }
+
+    @Test
     void comeTargetIsClearedWhenTheWorkerStops() {
         WorkerData data = WorkerData.hire(UUID.randomUUID());
         UUID player = UUID.randomUUID();

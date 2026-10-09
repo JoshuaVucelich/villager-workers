@@ -314,8 +314,10 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
             case "miner" -> "clear_box".equals(view.minerMode())
                     ? "Area " + view.areaText()
                     : "Origin " + view.originText();
-            case "builder" -> (view.createLoaded() ? "Create is installed. " : "Create is not installed. ")
-                    + "Builder does not place blocks yet. Schematic " + view.schematic()
+            case "builder" -> (view.createLoaded()
+                            ? "Places the linked schematic from the material chests. "
+                            : "Create is required before this worker can build. ")
+                    + "Schematic " + view.schematic()
                     + "  chests " + view.materialChests();
             default -> "Pick a job. Nothing is broken or built yet.";
         };
