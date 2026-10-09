@@ -141,7 +141,9 @@ Only the current owner can add or remove trusted players, and only the current o
 
 The client hides the permissions tab from trusted players. That is not the security check. Every packet and menu button checks the role again on the server. A failed check is ignored except for a one-line denial sent to that player. Checks use the server player UUID, never a UUID supplied by the client as "I am the owner".
 
-Other players keep the vanilla villager interaction, including trading. Owner and trusted players open the worker screen on right-click. Sneak-right-click keeps the vanilla interaction so trading still works. GUI and mutation packets are rejected if the player is more than 6 blocks from the villager or the worker menu is not open. Chat commands are the exception: they work from any distance while the worker is loaded in the same dimension.
+A trusted player acts with the owner's claim rights. Starting a job, marking an area, or telling the worker to come does not lend the trusted player's claims to that worker. Breaking a block, placing a block, and opening a linked container are checked as the owner: spawn protection, the world border, claim mods, and container locks all see the owner. If the owner is offline, the worker waits instead of skipping those checks. The click that links a chest or schematicannon is the clicking player's own interaction. That click is refused when another mod already cancelled it, when that player may not interact with the position, or when a lockable container does not open for them. Hauling later checks the owner again.
+
+Other players keep the vanilla villager interaction, including trading. Owner and trusted players open the worker screen on right-click. Sneak-right-click keeps the vanilla interaction so trading still works. GUI and mutation packets are rejected if the player is more than 6 blocks from the villager or the worker menu is not open. Chat commands run only when the line starts with `@`, the worker is loaded in the same dimension, and the worker is within 128 blocks of the sender.
 
 ## Networking
 
@@ -215,18 +217,18 @@ The server stores the result on that worker only. Clicks by a player who may not
 
 ### Linking chests
 
-"Link chest" on the setup panel, then right-click a chest, trapped chest, or barrel within 8 blocks of the worker. The server checks the block is one of those and is in the worker's dimension. Create machines, funnels, and vaults cannot be linked. A linked chest is remembered by position. If the block there is no longer a chest or barrel, the link is empty and the worker reports a missing chest.
+"Link chest" on the setup panel, then right-click a chest, trapped chest, or barrel within 8 blocks of the worker. The server checks the block is one of those and is in the worker's dimension. Create machines, funnels, and vaults cannot be linked. The click is ignored when it was already cancelled. The player must be allowed to interact with that position, and a lockable container must open for them. A linked chest is remembered by position. If the block there is no longer a chest or barrel, the link is empty and the worker reports a missing chest. Each time the worker opens a linked container it checks the owner again: spawn protection, the world border, and the container lock. A trusted player who linked the chest does not keep it open if the owner cannot.
 
 ## Chat commands
 
 Listen on the server chat event. Do not cancel the player's message.
 
-A command is a chat line whose first character is `@`. The rest is `Name`, then whitespace, then one verb. The name is the villager's custom name, compared exactly, including spaces. The verb is case-insensitive: `come`, `stop`, `resume`, `status`.
+A command is a chat line whose first character is `@`. The rest is `Name`, then whitespace, then one verb. The name is the villager's custom name, compared exactly, including spaces. The verb is case-insensitive: `come`, `stop`, `resume`, `status`. The server does not search for workers unless the raw message starts with `@`.
 
 Parsing:
 
 1. If the line does not start with `@`, ignore it.
-2. Among loaded workers in the sender's dimension, keep those whose custom name is a prefix of the text after `@`, with a name boundary (end of line or whitespace) after the name.
+2. Among loaded workers within 128 blocks of the sender, in the sender's dimension, keep those whose custom name is a prefix of the text after `@`, with a name boundary (end of line or whitespace) after the name.
 3. If none match, ignore the line. It is ordinary chat.
 4. Keep the longest matching name. If two workers tie, reply `More than one worker is named <name>.` and run nothing.
 5. The trailing verb must be one of the four. Anything else gets `Unknown command. Use come, stop, resume, or status.` when the sender may command that worker.
@@ -280,6 +282,8 @@ The predicate allows a break only when all of the following are true:
 Whitelist entries exempt only rules 6 and 7. They do not exempt the volume, the reach check, the global denylist, linked chests, or the owner permission check.
 
 Drops are inserted by item id: valuables list to the valuables chest, everything else to the regular chest. Lumberjack logs go to the log chest, and saplings the worker picks up go to the sapling chest. Nothing is voided. A full or missing chest pauses the job and messages the owner.
+
+The worker honors the `doTileDrops` game rule. When it is off, the block is removed and nothing is kept, including what was inside a chest. When it is on, a broken chest, barrel, or other container that would spill on removal has its contents hauled with the block drop instead of dropped on the ground. A creative-mode owner does not run the creative destroy hook for a shulker box or beehive, so those blocks are not dropped a second time.
 
 Tools come from the tool chest: an axe for the lumberjack, a pickaxe for the miner. The worker equips one, and vanilla durability applies. At 1 remaining durability the worker stops, returns the tool if it can, and messages the owner. On death the equipped tool drops with the villager. On stop or idle the tool is put back in the tool chest when that chest has room.
 

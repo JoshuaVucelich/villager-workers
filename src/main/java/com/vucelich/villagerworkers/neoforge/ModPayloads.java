@@ -1,7 +1,7 @@
 package com.vucelich.villagerworkers.neoforge;
 
 import com.vucelich.villagerworkers.common.VillagerWorkers;
-import com.vucelich.villagerworkers.neoforge.client.ClientScreens;
+import com.vucelich.villagerworkers.neoforge.client.ClientPayloadHandlers;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -36,21 +36,13 @@ public final class ModPayloads {
                 WorkerServer.removeTrusted(context.player(), payload));
         registrar.playToServer(TransferOwnerPayload.TYPE, TransferOwnerPayload.STREAM_CODEC, (payload, context) ->
                 WorkerServer.transfer(context.player(), payload));
-        registrar.playToClient(OpenHireScreenPayload.TYPE, OpenHireScreenPayload.STREAM_CODEC, (payload, context) -> {
-            if (FMLEnvironment.dist == Dist.CLIENT) {
-                ClientScreens.openHire(payload.villagerId(), payload.name());
-            }
-        });
-        registrar.playToClient(WorkerSnapshotPayload.TYPE, WorkerSnapshotPayload.STREAM_CODEC, (payload, context) -> {
-            if (FMLEnvironment.dist == Dist.CLIENT) {
-                ClientScreens.applySnapshot(payload.view());
-            }
-        });
-        registrar.playToClient(PermissionsSnapshotPayload.TYPE, PermissionsSnapshotPayload.STREAM_CODEC, (payload, context) -> {
-            if (FMLEnvironment.dist == Dist.CLIENT) {
-                ClientScreens.applyPermissions(payload.view());
-            }
-        });
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            ClientPayloadHandlers.register(registrar);
+        } else {
+            registrar.playToClient(OpenHireScreenPayload.TYPE, OpenHireScreenPayload.STREAM_CODEC, (payload, context) -> {});
+            registrar.playToClient(WorkerSnapshotPayload.TYPE, WorkerSnapshotPayload.STREAM_CODEC, (payload, context) -> {});
+            registrar.playToClient(PermissionsSnapshotPayload.TYPE, PermissionsSnapshotPayload.STREAM_CODEC, (payload, context) -> {});
+        }
     }
 
     public record HireChoicePayload(UUID villagerId, boolean hire) implements CustomPacketPayload {

@@ -142,7 +142,11 @@ public final class CreateBuilder {
         boolean matches = world.equals(wanted);
         ItemRequirement requirement = session.printer.getCurrentRequirement();
         boolean needsItem = requirement != null && !requirement.isEmpty() && !requirement.isInvalid();
-        List<Container> chests = chests(level, data);
+        ServerPlayer ownerPlayer = owner(villager, data);
+        if (needsItem && ownerPlayer == null) {
+            return Step.HOLD;
+        }
+        List<Container> chests = chests(level, data, ownerPlayer);
         boolean hasMaterials = !needsItem || (chests != null && hasAll(chests, requirement));
         PlacementRules.Choice choice = PlacementRules.choose(matches, wanted.isAir(), world.canBeReplaced(), hasMaterials);
         if (requirement != null && requirement.isInvalid() && !matches) {
@@ -216,7 +220,11 @@ public final class CreateBuilder {
             return;
         }
         ItemRequirement requirement = session.printer.getCurrentRequirement();
-        List<Container> chests = chests(level, data);
+        ServerPlayer ownerPlayer = owner(villager, data);
+        if (ownerPlayer == null) {
+            return;
+        }
+        List<Container> chests = chests(level, data, ownerPlayer);
         if (chests != null && hasAll(chests, requirement)) {
             data.setActivity(WorkerActivity.WORKING);
             clearSolved(data);
@@ -229,13 +237,13 @@ public final class CreateBuilder {
         return found[0];
     }
 
-    private static List<Container> chests(ServerLevel level, WorkerData data) {
-        if (data.builder().materialChests().isEmpty()) {
+    private static List<Container> chests(ServerLevel level, WorkerData data, ServerPlayer owner) {
+        if (data.builder().materialChests().isEmpty() || owner == null) {
             return null;
         }
         List<Container> open = new ArrayList<>();
         for (BlockPos pos : data.builder().materialChests()) {
-            Container chest = ContainerAccess.open(level, pos);
+            Container chest = ContainerAccess.open(level, pos, owner);
             if (chest != null) {
                 open.add(chest);
             }

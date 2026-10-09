@@ -41,6 +41,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.event.ServerChatEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.tick.EntityTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -48,6 +49,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 public final class WorkerServer {
     private static final long HIRE_TIMEOUT_MS = 60_000L;
     private static final java.util.Map<UUID, PendingHire> PENDING_HIRES = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Chat only considers workers inside this radius. The old full-dimension box scanned every loaded villager. */
+    private static final double CHAT_RANGE = 128.0;
 
     private record PendingHire(UUID villagerId, long expiresAt) {}
 
@@ -81,7 +84,7 @@ public final class WorkerServer {
     }
 
     public static void onRightClickBlock(PlayerInteractEvent.RightClickBlock event) {
-        if (event.getLevel().isClientSide() || event.getHand() != InteractionHand.MAIN_HAND) {
+        if (event.isCanceled() || event.getLevel().isClientSide() || event.getHand() != InteractionHand.MAIN_HAND) {
             return;
         }
         if (!(event.getEntity() instanceof ServerPlayer player)) {
@@ -100,17 +103,27 @@ public final class WorkerServer {
         WorkerAttachments.get(villager).ifPresent(data -> WorkerTicker.tick(villager, data));
     }
 
+    public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        UUID id = event.getEntity().getUUID();
+        PENDING_HIRES.remove(id);
+        SetupSessions.clear(id);
+    }
+
     public static void onChat(ServerChatEvent event) {
+        String raw = event.getRawText();
+        if (raw == null || !raw.startsWith("@")) {
+            return;
+        }
         ServerPlayer player = event.getPlayer();
         if (!(player.level() instanceof ServerLevel level)) {
             return;
         }
-        List<Villager> workers = loadedWorkers(level);
+        List<Villager> workers = loadedWorkers(level, player);
         List<String> names = new ArrayList<>(workers.size());
         for (Villager villager : workers) {
             names.add(displayName(villager));
         }
-        Optional<ChatCommands.Match> found = ChatCommands.match(event.getRawText(), names);
+        Optional<ChatCommands.Match> found = ChatCommands.match(raw, names);
         if (found.isEmpty()) {
             return;
         }
@@ -491,9 +504,13 @@ public final class WorkerServer {
                 .orElse("unknown");
     }
 
-    private static List<Villager> loadedWorkers(ServerLevel level) {
-        AABB bounds = new AABB(-3.0E7, level.getMinBuildHeight(), -3.0E7, 3.0E7, level.getMaxBuildHeight(), 3.0E7);
-        return level.getEntitiesOfClass(Villager.class, bounds, WorkerAttachments::isWorker);
+    private static List<Villager> loadedWorkers(ServerLevel level, ServerPlayer player) {
+        double rangeSqr = CHAT_RANGE * CHAT_RANGE;
+        AABB bounds = player.getBoundingBox().inflate(CHAT_RANGE);
+        return level.getEntitiesOfClass(
+                Villager.class,
+                bounds,
+                villager -> WorkerAttachments.isWorker(villager) && villager.distanceToSqr(player) <= rangeSqr);
     }
 
     private static String displayName(Villager villager) {

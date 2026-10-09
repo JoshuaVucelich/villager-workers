@@ -5,6 +5,7 @@ import com.vucelich.villagerworkers.common.VillagerWorkers;
 import com.vucelich.villagerworkers.neoforge.client.ClientModEvents;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.api.distmarker.Dist;
+import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLEnvironment;
@@ -26,9 +27,10 @@ public final class VillagerWorkersMod {
             modBus.addListener(ClientModEvents::registerScreens);
         }
         NeoForge.EVENT_BUS.addListener(WorkerServer::onEntityInteract);
-        NeoForge.EVENT_BUS.addListener(WorkerServer::onRightClickBlock);
+        NeoForge.EVENT_BUS.addListener(EventPriority.LOW, WorkerServer::onRightClickBlock);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onTick);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onChat);
+        NeoForge.EVENT_BUS.addListener(WorkerServer::onLogout);
         NeoForge.EVENT_BUS.addListener(JobRunner::onDeath);
         LOGGER.info("Villager Workers ({}) loaded", VillagerWorkers.MOD_ID);
     }

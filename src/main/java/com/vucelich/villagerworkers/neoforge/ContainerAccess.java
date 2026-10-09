@@ -3,10 +3,12 @@ package com.vucelich.villagerworkers.neoforge;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.BarrelBlock;
 import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -14,18 +16,28 @@ import net.minecraft.world.level.block.state.BlockState;
 public final class ContainerAccess {
     private ContainerAccess() {}
 
-    public static Container open(ServerLevel level, BlockPos pos) {
-        if (level == null || pos == null || !level.isLoaded(pos)) {
+    /**
+     * Opens a chest or barrel for the owner. Spawn protection, the world border, and a container lock are checked
+     * again on every call. An offline owner cannot open anything.
+     */
+    public static Container open(ServerLevel level, BlockPos pos, ServerPlayer owner) {
+        if (level == null || pos == null || owner == null || !level.isLoaded(pos)) {
+            return null;
+        }
+        if (!level.mayInteract(owner, pos)) {
             return null;
         }
         BlockState state = level.getBlockState(pos);
+        BlockEntity entity = level.getBlockEntity(pos);
+        if (entity instanceof BaseContainerBlockEntity container && !container.canOpen(owner)) {
+            return null;
+        }
         if (state.getBlock() instanceof ChestBlock chest) {
             return ChestBlock.getContainer(chest, state, level, pos, true);
         }
         if (!(state.getBlock() instanceof BarrelBlock)) {
             return null;
         }
-        BlockEntity entity = level.getBlockEntity(pos);
         return entity instanceof Container container ? container : null;
     }
 

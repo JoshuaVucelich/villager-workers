@@ -20,6 +20,8 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.block.BarrelBlock;
 import net.minecraft.world.level.block.ChestBlock;
+import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
@@ -46,6 +48,12 @@ public final class SetupSessions {
     private static final double CHEST_RANGE_SQR = 64.0;
 
     private SetupSessions() {}
+
+    public static void clear(UUID playerId) {
+        if (playerId != null) {
+            SESSIONS.remove(playerId);
+        }
+    }
 
     public static void armMark(ServerPlayer player, Villager villager, WorkerData data) {
         boolean origin = data.job() == WorkerJob.MINER && data.miner().mode() != MinerMode.CLEAR_BOX;
@@ -137,6 +145,14 @@ public final class SetupSessions {
         }
         if (villager.distanceToSqr(Vec3.atCenterOf(pos)) > CHEST_RANGE_SQR) {
             player.sendSystemMessage(Component.literal("That block is more than 8 blocks from the worker."));
+            return true;
+        }
+        if (!player.level().mayInteract(player, pos)) {
+            player.sendSystemMessage(Component.literal("You cannot interact with that block."));
+            return true;
+        }
+        BlockEntity blockEntity = player.level().getBlockEntity(pos);
+        if (blockEntity instanceof BaseContainerBlockEntity container && !container.canOpen(player)) {
             return true;
         }
         BlockState state = player.level().getBlockState(pos);
