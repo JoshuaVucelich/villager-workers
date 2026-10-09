@@ -31,13 +31,17 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.GameMasterBlock;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.common.util.BlockSnapshot;
+import net.neoforged.neoforge.event.EventHooks;
 import net.neoforged.neoforge.event.entity.living.LivingDropsEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
 
@@ -450,13 +454,23 @@ public final class JobRunner {
             pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
             return;
         }
-        if (!wallItemAllowed(data, wall) || !takeAndPlace(level, chest, wall, pos)) {
+        if (!wallItemAllowed(data, wall)) {
+            pause(villager, data, runtime, ProblemCode.OUT_OF_MATERIALS, wall.toString());
+            return;
+        }
+        PlaceResult placed = takeAndPlace(level, villager, data, chest, wall, pos);
+        if (placed == PlaceResult.WAIT) {
+            return;
+        }
+        if (placed == PlaceResult.MISSING) {
             pause(villager, data, runtime, ProblemCode.OUT_OF_MATERIALS, wall.toString());
             return;
         }
         runtime.breaking = null;
-        runtime.cooldownUntil = level.getGameTime() + ActionPace.ticksBetweenActions(data.rested());
-        clearSolved(data);
+        if (placed == PlaceResult.PLACED) {
+            runtime.cooldownUntil = level.getGameTime() + ActionPace.ticksBetweenActions(data.rested());
+            clearSolved(data);
+        }
     }
 
     private static void plantStump(ServerLevel level, Villager villager, WorkerData data, Runtime runtime) {
@@ -483,14 +497,20 @@ public final class JobRunner {
             return;
         }
         ResourceLocation id = ResourceLocation.parse(item);
-        if (!takeAndPlace(level, chest, id, pos)) {
+        PlaceResult placed = takeAndPlace(level, villager, data, chest, id, pos);
+        if (placed == PlaceResult.WAIT) {
+            runtime.stump = pos;
+            runtime.stumpItem = item;
+            return;
+        }
+        if (placed != PlaceResult.PLACED) {
             pause(villager, data, runtime, ProblemCode.OUT_OF_MATERIALS, item);
             runtime.stump = pos;
             runtime.stumpItem = item;
-        } else {
-            runtime.cooldownUntil = level.getGameTime() + ActionPace.ticksBetweenActions(data.rested());
-            clearSolved(data);
+            return;
         }
+        runtime.cooldownUntil = level.getGameTime() + ActionPace.ticksBetweenActions(data.rested());
+        clearSolved(data);
     }
 
     private static boolean readyToPlant(Runtime runtime) {
@@ -526,21 +546,41 @@ public final class JobRunner {
         return whitelisted || !BreakRules.PROTECTED_NAMESPACES.contains(wall.getNamespace());
     }
 
-    private static boolean takeAndPlace(ServerLevel level, Container chest, ResourceLocation itemId, BlockPos pos) {
+    private enum PlaceResult {
+        PLACED,
+        MISSING,
+        DENIED,
+        WAIT
+    }
+
+    private static PlaceResult takeAndPlace(
+            ServerLevel level, Villager villager, WorkerData data, Container chest, ResourceLocation itemId, BlockPos pos) {
         ItemStack taken = ContainerAccess.takeBest(chest, stack -> itemId.equals(BuiltInRegistries.ITEM.getKey(stack.getItem())));
         if (taken.isEmpty()) {
-            return false;
+            return PlaceResult.MISSING;
         }
         Block block = BuiltInRegistries.BLOCK.get(itemId);
         if (block == null || block.defaultBlockState().isAir()) {
             ContainerAccess.insert(chest, taken);
-            return false;
+            return PlaceResult.MISSING;
         }
+        ServerPlayer ownerPlayer = owner(villager, data);
+        if (ownerPlayer == null) {
+            ContainerAccess.insert(chest, taken);
+            return PlaceResult.WAIT;
+        }
+        BlockState previous = level.getBlockState(pos);
+        BlockSnapshot snapshot = BlockSnapshot.create(level.dimension(), level, pos);
         if (!level.setBlock(pos, block.defaultBlockState(), Block.UPDATE_ALL)) {
             ContainerAccess.insert(chest, taken);
-            return false;
+            return PlaceResult.DENIED;
         }
-        return true;
+        if (EventHooks.onBlockPlace(ownerPlayer, snapshot, net.minecraft.core.Direction.DOWN)) {
+            level.setBlock(pos, previous, Block.UPDATE_ALL);
+            ContainerAccess.insert(chest, taken);
+            return PlaceResult.DENIED;
+        }
+        return PlaceResult.PLACED;
     }
 
     private static void rememberStump(ServerLevel level, WorkerData data, Runtime runtime, BlockPos pos, BlockState state) {
@@ -722,7 +762,7 @@ public final class JobRunner {
                 || (data.lumberjack().clearLeaves() && state.is(BlockTags.LEAVES));
         String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
         boolean whitelisted = data.breakWhitelist().stream().anyMatch(entry -> entry.toString().equals(id));
-        boolean reserved = data.linkedPositions().contains(pos) || homeBed(data, level, pos);
+        boolean reserved = reserved(level, data, pos);
         return BreakRules.allow(
                 data.activity() == WorkerActivity.WORKING && (data.job() == WorkerJob.LUMBERJACK || data.job() == WorkerJob.MINER),
                 WorkVolumes.isDig(data, level.dimension().location(), pos) || WorkVolumes.isWall(data, level.dimension().location(), pos),
@@ -736,10 +776,48 @@ public final class JobRunner {
                 lumber);
     }
 
+    private static boolean reserved(ServerLevel level, WorkerData data, BlockPos pos) {
+        if (homeBed(data, level, pos)) {
+            return true;
+        }
+        for (BlockPos linked : data.linkedPositions()) {
+            if (linked.equals(pos) || partner(level, linked).equals(pos)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static BlockPos partner(ServerLevel level, BlockPos pos) {
+        if (!level.isLoaded(pos)) {
+            return pos;
+        }
+        BlockState state = level.getBlockState(pos);
+        if (state.getBlock() instanceof ChestBlock && state.getValue(ChestBlock.TYPE) != ChestType.SINGLE) {
+            return pos.relative(ChestBlock.getConnectedDirection(state));
+        }
+        return pos;
+    }
+
     private static boolean homeBed(WorkerData data, ServerLevel level, BlockPos pos) {
-        return data.homeBed() != null
-                && data.homeBed().dimension().equals(level.dimension())
-                && data.homeBed().pos().equals(pos);
+        if (data.homeBed() == null || !data.homeBed().dimension().equals(level.dimension())) {
+            return false;
+        }
+        BlockPos bed = data.homeBed().pos();
+        if (bed.equals(pos)) {
+            return true;
+        }
+        if (!level.isLoaded(bed)) {
+            return false;
+        }
+        BlockState state = level.getBlockState(bed);
+        if (!state.is(BlockTags.BEDS) || !state.hasProperty(BedBlock.PART) || !state.hasProperty(BedBlock.FACING)) {
+            return false;
+        }
+        BedPart part = state.getValue(BedBlock.PART);
+        var facing = state.getValue(BedBlock.FACING);
+        BlockPos other = part == BedPart.HEAD ? bed.relative(facing.getOpposite()) : bed.relative(facing);
+        return other.equals(pos);
     }
 
     private static boolean inReach(Villager villager, BlockPos pos) {
