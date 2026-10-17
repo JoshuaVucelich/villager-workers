@@ -59,7 +59,9 @@ public final class WorkerTicker {
         if (sleeping) {
             villager.getSleepingPos().ifPresent(data::setPendingBed);
         }
-        if (data.wasSleeping() && !sleeping) {
+        // A working or coming villager is pulled out of bed. That is a missed night, not a finished sleep.
+        boolean mayCountSleep = data.activity() == WorkerActivity.IDLE || data.activity() == WorkerActivity.STOPPED;
+        if (mayCountSleep && data.wasSleeping() && !sleeping) {
             BlockPos bed = data.pendingBed();
             if (bed != null && villager.level().isLoaded(bed) && villager.level().getBlockState(bed).is(BlockTags.BEDS)) {
                 data.setSleptLastNight(true);
