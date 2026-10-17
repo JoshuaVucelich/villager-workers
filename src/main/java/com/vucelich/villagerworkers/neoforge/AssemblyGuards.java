@@ -22,6 +22,7 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
  */
 final class AssemblyGuards {
     private static boolean shipLookupFailed;
+    private static boolean shipFailureLogged;
     private static long shipRetryAt = Long.MIN_VALUE;
     private static boolean shipBound;
     private static MethodHandle shipContainer;
@@ -96,12 +97,15 @@ final class AssemblyGuards {
             }
             Object container = shipContainer.invoke(level);
             if (container == null) {
+                shipFailureLogged = false;
                 return false;
             }
             if (!((boolean) shipInBounds.invoke(container, pos))) {
+                shipFailureLogged = false;
                 return false;
             }
             Object plot = shipPlot.invoke(container, new ChunkPos(pos));
+            shipFailureLogged = false;
             return plot != null && shipSubLevel.invoke(plot) != null;
         } catch (Throwable exception) {
             failShip(exception, now);
@@ -134,11 +138,12 @@ final class AssemblyGuards {
     private static void failShip(Throwable exception, long now) {
         shipLookupFailed = true;
         shipRetryAt = now + ActionPace.SHIP_RETRY_TICKS;
-        if (exception == null) {
-            VillagerWorkersMod.LOGGER.warn("Could not ask Sable whether a block is on a ship. Treating those blocks as occupied.");
+        if (shipFailureLogged) {
             return;
         }
-        VillagerWorkersMod.LOGGER.warn("Could not ask Sable whether a block is on a ship. Treating those blocks as occupied.", exception);
+        shipFailureLogged = true;
+        Throwable stack = exception != null ? exception : new IllegalStateException("Sable ship lookup returned no handles");
+        VillagerWorkersMod.LOGGER.warn("Could not ask Sable whether a block is on a ship. Treating those blocks as occupied.", stack);
     }
 
     private static boolean onContraption(ServerLevel level, BlockPos pos) {

@@ -142,6 +142,8 @@ public final class JobRunner {
         String signature = signature(data);
         if (!signature.equals(runtime.signature)) {
             runtime.signature = signature;
+            runtime.stump = null;
+            runtime.stumpItem = "";
             restartPass(runtime);
         } else if (resume) {
             restartPass(runtime);
