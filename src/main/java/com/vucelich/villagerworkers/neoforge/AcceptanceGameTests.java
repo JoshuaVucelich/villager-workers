@@ -645,6 +645,56 @@ public class AcceptanceGameTests {
         });
     }
 
+    @GameTest(template = "platform", timeoutTicks = 300)
+    public static void resumeKeepsAPendingReplant(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        Villager worker = villager(helper, 2, 1, 3, "Replant");
+        ServerLevel level = helper.getLevel();
+        BlockPos stump = helper.absolutePos(new BlockPos(2, 1, 2));
+        level.setBlockAndUpdate(stump.below(), Blocks.DIRT.defaultBlockState());
+        level.setBlockAndUpdate(stump, Blocks.OAK_LOG.defaultBlockState());
+        BlockPos logs = barrel(helper, 1, 1, 2);
+        BlockPos saplings = barrel(helper, 1, 1, 3);
+        BlockPos tools = barrel(helper, 1, 1, 4, new ItemStack(Items.DIAMOND_AXE));
+        WorkerData data = hire(worker, owner);
+        data.setJob(WorkerJob.LUMBERJACK);
+        data.setActivity(WorkerActivity.WORKING);
+        data.setRested(true);
+        data.setLastDawnDay(Long.MAX_VALUE);
+        data.setLumberjack(new LumberjackConfig(
+                Optional.of(area(level, stump, stump)),
+                false,
+                true,
+                Optional.of(logs),
+                Optional.of(saplings),
+                Optional.of(tools)));
+        boolean[] paused = {false};
+        boolean[] resumed = {false};
+        long[] pausedAt = {-1L};
+        helper.onEachTick(() -> {
+            if (!paused[0]
+                    && data.activity() == WorkerActivity.STOPPED
+                    && data.problem().code() == ProblemCode.OUT_OF_MATERIALS
+                    && level.getBlockState(stump).isAir()) {
+                paused[0] = true;
+                pausedAt[0] = level.getGameTime();
+                return;
+            }
+            if (paused[0] && !resumed[0] && level.getGameTime() >= pausedAt[0] + 2L) {
+                helper.assertTrue(level.getBlockState(stump).isAir(), "stump still waiting");
+                put(level, saplings, new ItemStack(Items.OAK_SAPLING));
+                data.setActivity(WorkerActivity.WORKING);
+                resumed[0] = true;
+            }
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(paused[0], "replant paused without a sapling");
+            helper.assertTrue(resumed[0], "resumed");
+            helper.assertTrue(level.getBlockState(stump).is(Blocks.OAK_SAPLING), "pending stump was planted");
+            cleanup(owner);
+        });
+    }
+
     @GameTest(template = "platform", timeoutTicks = 80)
     public static void missingOrBrokenAxePauses(GameTestHelper helper) {
         RecordingPlayer owner = player(helper);

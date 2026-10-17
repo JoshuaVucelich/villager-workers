@@ -23,7 +23,10 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 final class AssemblyGuards {
     private static boolean shipLookupFailed;
     private static boolean shipFailureLogged;
+    /** Counts real warning logs. Tests read it. Server stop does not zero it. */
+    static int shipFailureLogs;
     private static long shipRetryAt = Long.MIN_VALUE;
+    private static boolean sableForced;
     private static boolean shipBound;
     private static MethodHandle shipContainer;
     private static MethodHandle shipInBounds;
@@ -48,7 +51,8 @@ final class AssemblyGuards {
         if (level == null || !shipLookupFailed || level.getGameTime() < shipRetryAt) {
             return;
         }
-        onShip(level, BlockPos.ZERO);
+        // The origin probe is not a recovered lookup, so it must not clear the failure.
+        lookupShip(level, BlockPos.ZERO, level.getGameTime(), false);
     }
 
     static void onServerStopped(ServerStoppedEvent event) {
@@ -56,6 +60,54 @@ final class AssemblyGuards {
         cacheTick = Long.MIN_VALUE;
         cache.clear();
         shipRetryAt = Long.MIN_VALUE;
+        shipLookupFailed = false;
+        shipFailureLogged = false;
+    }
+
+    /** Test-only. The handles replace Sable, and {@code sable} is treated as loaded. */
+    static void installShipLookupForTest(
+            MethodHandle container, MethodHandle inBounds, MethodHandle plot, MethodHandle sub) {
+        shipContainer = container;
+        shipInBounds = inBounds;
+        shipPlot = plot;
+        shipSubLevel = sub;
+        shipBound = true;
+        sableForced = true;
+        shipLookupFailed = false;
+        shipFailureLogged = false;
+        shipRetryAt = Long.MIN_VALUE;
+        shipFailureLogs = 0;
+        cache.clear();
+        cacheTick = Long.MIN_VALUE;
+        cacheLevel = new WeakReference<>(null);
+    }
+
+    static void resetShipForTest() {
+        shipContainer = null;
+        shipInBounds = null;
+        shipPlot = null;
+        shipSubLevel = null;
+        shipBound = false;
+        sableForced = false;
+        shipLookupFailed = false;
+        shipFailureLogged = false;
+        shipRetryAt = Long.MIN_VALUE;
+        shipFailureLogs = 0;
+        cache.clear();
+        cacheTick = Long.MIN_VALUE;
+        cacheLevel = new WeakReference<>(null);
+    }
+
+    /** Test-only lookup. {@code recover} is false for the origin poll. */
+    static boolean probeForTest(long now, BlockPos pos, boolean recover) {
+        return lookupShip(null, pos, now, recover);
+    }
+
+    static void pollForTest(long now) {
+        if (!shipLookupFailed || now < shipRetryAt) {
+            return;
+        }
+        lookupShip(null, BlockPos.ZERO, now, false);
     }
 
     static boolean occupied(ServerLevel level, BlockPos pos) {
@@ -78,15 +130,28 @@ final class AssemblyGuards {
         return value;
     }
 
+    private static boolean sableLoaded() {
+        return sableForced || ModList.get().isLoaded("sable");
+    }
+
     private static boolean onShip(ServerLevel level, BlockPos pos) {
-        if (!ModList.get().isLoaded("sable")) {
+        if (!sableLoaded()) {
             return false;
         }
-        long now = level.getGameTime();
+        return lookupShip(level, pos, level.getGameTime(), true);
+    }
+
+    /**
+     * {@code recover} clears the failure only after both the plot and its sublevel have returned.
+     * A null container, an out-of-bounds block, a null plot, or a poll that does not ask to recover leaves the flag.
+     */
+    private static boolean lookupShip(ServerLevel level, BlockPos pos, long now, boolean recover) {
+        if (!sableLoaded()) {
+            return false;
+        }
         if (shipLookupFailed && now < shipRetryAt) {
             return true;
         }
-        shipLookupFailed = false;
         try {
             if (!shipBound) {
                 bindShip();
@@ -97,16 +162,21 @@ final class AssemblyGuards {
             }
             Object container = shipContainer.invoke(level);
             if (container == null) {
-                shipFailureLogged = false;
                 return false;
             }
             if (!((boolean) shipInBounds.invoke(container, pos))) {
-                shipFailureLogged = false;
                 return false;
             }
             Object plot = shipPlot.invoke(container, new ChunkPos(pos));
-            shipFailureLogged = false;
-            return plot != null && shipSubLevel.invoke(plot) != null;
+            if (plot == null) {
+                return false;
+            }
+            Object subLevel = shipSubLevel.invoke(plot);
+            if (recover) {
+                shipLookupFailed = false;
+                shipFailureLogged = false;
+            }
+            return subLevel != null;
         } catch (Throwable exception) {
             failShip(exception, now);
             return true;
@@ -142,6 +212,7 @@ final class AssemblyGuards {
             return;
         }
         shipFailureLogged = true;
+        shipFailureLogs++;
         Throwable stack = exception != null ? exception : new IllegalStateException("Sable ship lookup returned no handles");
         VillagerWorkersMod.LOGGER.warn("Could not ask Sable whether a block is on a ship. Treating those blocks as occupied.", stack);
     }
