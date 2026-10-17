@@ -288,7 +288,7 @@ The worker honors the `doTileDrops` game rule for the block item. When it is off
 
 Tools come from the tool chest: an axe for the lumberjack, a pickaxe for the miner. The worker equips one, and vanilla durability applies. At 1 remaining durability the worker stops, returns the tool if it can, and messages the owner. On death the equipped tool drops with the villager. On stop or idle the tool is put back in the tool chest when that chest has room.
 
-Replanting places one matching sapling on a dirt-like block inside the lumberjack box after that trunk's logs are gone. It does not place outside the box, and it does not replace a non-dirt block. The sapling is taken from the sapling chest.
+Replanting places one matching sapling on a dirt-like block inside the lumberjack box after that trunk's logs are gone. It does not place outside the box, and it does not replace a non-dirt block. The sapling is taken from the sapling chest. While the worker is still working, a finished lumberjack or miner pass starts again, so a log or ore that appears later in the volume is still taken.
 
 ## Builder
 

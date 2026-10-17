@@ -171,8 +171,13 @@ public final class JobRunner {
             return;
         }
         if (runtime.phase == Phase.DONE) {
-            release(villager, data, runtime);
-            return;
+            // Stay on the job while WORKING. A tree that grows in later, or a block that was protected and is
+            // whitelisted afterward, is picked up on the next pass.
+            runtime.phase = Phase.LOGS;
+            runtime.cursor = 0;
+            runtime.foundThisPass = false;
+            runtime.tree = List.of();
+            runtime.treeIndex = 0;
         }
         BlockPos next = nextTarget(level, villager, data, runtime);
         if (next == null) {
