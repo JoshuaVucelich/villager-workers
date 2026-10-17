@@ -657,6 +657,7 @@ public class AcceptanceGameTests {
         }
         BlockPos rail = helper.absolutePos(new BlockPos(6, 2, 4));
         level.setBlockAndUpdate(rail, Blocks.RAIL.defaultBlockState());
+        VillagerWorkersMod.LOGGER.info("Protected pack blocks placed: {}", packedIds);
         box = area(level, stone, helper.absolutePos(new BlockPos(6, 2, 4)));
         clear.setMiner(miner(MinerMode.CLEAR_BOX, box, null, 1, 2, 1, "", 4, 1, 1, 1, false, regular, valuables, tools));
 
