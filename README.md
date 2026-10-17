@@ -10,7 +10,7 @@ The mod is aimed at a pack that also runs Create 6.0.x and Create Aeronautics. C
 
 - Java 21
 - Minecraft 1.21.1
-- NeoForge 21.1.x (built with 21.1.256, loads on 21.1.233 and newer), built with ModDevGradle
+- NeoForge 21.1.233 or newer. This build is compiled with NeoForge 21.1.256.
 
 ## Build
 

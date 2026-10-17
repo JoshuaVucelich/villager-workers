@@ -173,6 +173,8 @@ public final class JobRunner {
             return;
         }
         if (runtime.phase == Phase.DONE) {
+            // Stay on the job while WORKING. Wait one second, then scan again so a log or ore that appears
+            // later is still taken. The wall list is cleared with the rest of the pass.
             release(villager, data, runtime);
             if (runtime.rescanAt == 0L) {
                 runtime.rescanAt = level.getGameTime() + 20L;

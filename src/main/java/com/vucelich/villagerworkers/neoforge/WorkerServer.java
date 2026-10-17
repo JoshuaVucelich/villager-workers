@@ -39,7 +39,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.event.ServerChatEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
@@ -49,10 +48,16 @@ import net.neoforged.neoforge.network.PacketDistributor;
 public final class WorkerServer {
     private static final long HIRE_TIMEOUT_MS = 60_000L;
     private static final java.util.Map<UUID, PendingHire> PENDING_HIRES = new java.util.concurrent.ConcurrentHashMap<>();
-    /** Chat only considers workers inside this radius. The old full-dimension box scanned every loaded villager. */
-    private static final double CHAT_RANGE = 128.0;
 
     private record PendingHire(UUID villagerId, long expiresAt) {}
+
+    /** Ages a pending hire so tests can check the timeout without waiting a minute. */
+    static void expirePendingHire(UUID playerId) {
+        PendingHire pending = PENDING_HIRES.remove(playerId);
+        if (pending != null) {
+            PENDING_HIRES.put(playerId, new PendingHire(pending.villagerId(), System.currentTimeMillis() - 5_000L));
+        }
+    }
 
     private WorkerServer() {}
 
@@ -506,13 +511,16 @@ public final class WorkerServer {
                 .orElse("unknown");
     }
 
+    /** Chat works at any distance while the worker is loaded in the sender's dimension. */
     private static List<Villager> loadedWorkers(ServerLevel level, ServerPlayer player) {
-        double rangeSqr = CHAT_RANGE * CHAT_RANGE;
-        AABB bounds = player.getBoundingBox().inflate(CHAT_RANGE);
-        return level.getEntitiesOfClass(
-                Villager.class,
-                bounds,
-                villager -> WorkerAttachments.isWorker(villager) && villager.distanceToSqr(player) <= rangeSqr);
+        List<Villager> workers = new ArrayList<>();
+        level.getEntities().get(net.minecraft.world.entity.EntityType.VILLAGER, villager -> {
+            if (WorkerAttachments.isWorker(villager)) {
+                workers.add(villager);
+            }
+            return net.minecraft.util.AbortableIterationConsumer.Continuation.CONTINUE;
+        });
+        return workers;
     }
 
     private static String displayName(Villager villager) {

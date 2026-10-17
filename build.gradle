@@ -126,10 +126,12 @@ dependencies {
     compileOnly("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
     compileOnly("dev.engine-room.flywheel:flywheel-neoforge-api-${minecraft_version}:${flywheel_version}")
     compileOnly("com.tterrag.registrate:Registrate:${registrate_version}")
-    // Create's POM marks optional integrations as ordinary runtime dependencies.
+    // Create's POM lists optional integrations (JEI, Farmer's Delight, FTB, JourneyMap)
+    // as ordinary runtime dependencies. Keep them off the test runtime.
     localRuntime("com.simibubi.create:create-${minecraft_version}:${create_version}") { transitive = false }
     localRuntime("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
     localRuntime("dev.engine-room.flywheel:flywheel-neoforge-${minecraft_version}:${flywheel_version}")
+    localRuntime("dev.engine-room.vanillin:vanillin-neoforge-${minecraft_version}:1.1.3-41") { transitive = false }
     localRuntime("com.tterrag.registrate:Registrate:${registrate_version}")
 
     // Optional jars for a pack-loaded game test server: ./gradlew runGameTestServer -PpackMods=/path/to/mods

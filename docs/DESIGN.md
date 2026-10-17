@@ -280,7 +280,7 @@ The predicate allows a break only when all of the following are true:
 9. Miner may break any other block that passed the checks above. It still cannot break denylisted blocks, unwhitelisted machines, or unwhitelisted Create and Aeronautics blocks.
 10. The owner would be allowed to break that block. Before the break, post NeoForge's block-break event as a survival-mode break by the owner (spawn protection, world border, and claim mods that listen to that event). If the event is cancelled, do not break the block. Do not use a creative fake player.
 
-Whitelist entries exempt only rules 6 and 7. They do not exempt the volume, the reach check, the global denylist, linked chests, or the owner permission check.
+Whitelist entries exempt only rules 6 and 7. They do not exempt the volume, the reach check, the global denylist, linked chests, ship plots, contraptions, or the owner permission check.
 
 Drops are inserted by item id: valuables list to the valuables chest, everything else to the regular chest. Lumberjack logs go to the log chest, and saplings the worker picks up go to the sapling chest. Nothing is voided. A full or missing chest pauses the job and messages the owner.
 
@@ -288,7 +288,7 @@ The worker honors the `doTileDrops` game rule for the block item. When it is off
 
 Tools come from the tool chest: an axe for the lumberjack, a pickaxe for the miner. The worker equips one, and vanilla durability applies. At 1 remaining durability the worker stops, returns the tool if it can, and messages the owner. On death the equipped tool drops with the villager. On stop or idle the tool is put back in the tool chest when that chest has room.
 
-Replanting places one matching sapling on a dirt-like block inside the lumberjack box after that trunk's logs are gone. It does not place outside the box, and it does not replace a non-dirt block. The sapling is taken from the sapling chest.
+Replanting places one matching sapling on a dirt-like block inside the lumberjack box after that trunk's logs are gone. It does not place outside the box, and it does not replace a non-dirt block. The sapling is taken from the sapling chest. While the worker is still working, a finished lumberjack or miner pass starts again, so a log or ore that appears later in the volume is still taken.
 
 ## Builder
 
