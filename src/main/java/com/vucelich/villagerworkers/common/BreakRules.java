@@ -31,7 +31,20 @@ public final class BreakRules {
             "aeronautics",
             "simulated",
             "sable",
-            "offroad");
+            "offroad",
+            "createbigcannons",
+            "railways",
+            "numismatics");
+
+    /**
+     * Vanilla rail blocks. Their namespace is minecraft, so the namespace list does not cover them.
+     * A whitelist entry can override this set. It cannot override {@link #GLOBAL_DENY}.
+     */
+    public static final Set<String> PROTECTED_PATHS = Set.of(
+            "rail",
+            "powered_rail",
+            "detector_rail",
+            "activator_rail");
 
     private BreakRules() {}
 
@@ -61,6 +74,9 @@ public final class BreakRules {
         }
         String namespace = namespace(blockId);
         if (namespace != null && PROTECTED_NAMESPACES.contains(namespace) && !whitelisted) {
+            return false;
+        }
+        if (PROTECTED_PATHS.contains(path) && !whitelisted) {
             return false;
         }
         return lumberBlockOk;

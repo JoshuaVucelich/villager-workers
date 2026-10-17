@@ -39,6 +39,13 @@ class WorkRulesTest {
         assertTrue(BreakRules.PROTECTED_NAMESPACES.contains("simulated"));
         assertTrue(BreakRules.PROTECTED_NAMESPACES.contains("sable"));
         assertTrue(BreakRules.PROTECTED_NAMESPACES.contains("offroad"));
+        assertTrue(BreakRules.PROTECTED_NAMESPACES.contains("createbigcannons"));
+        assertTrue(BreakRules.PROTECTED_NAMESPACES.contains("railways"));
+        assertTrue(BreakRules.PROTECTED_NAMESPACES.contains("numismatics"));
+        for (String path : BreakRules.PROTECTED_PATHS) {
+            assertFalse(allow(true, true, true, true, 1, "minecraft:" + path, false, false, false, true), path);
+            assertTrue(allow(true, true, true, true, 1, "minecraft:" + path, false, false, true, true), path);
+        }
     }
 
     @Test

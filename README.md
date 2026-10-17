@@ -10,7 +10,7 @@ The mod is aimed at a pack that also runs Create 6.0.x and Create Aeronautics. C
 
 - Java 21
 - Minecraft 1.21.1
-- NeoForge 21.1.256, built with ModDevGradle
+- NeoForge 21.1.x (built with 21.1.256, loads on 21.1.233 and newer), built with ModDevGradle
 
 ## Build
 
@@ -18,7 +18,7 @@ The mod is aimed at a pack that also runs Create 6.0.x and Create Aeronautics. C
 ./gradlew build
 ```
 
-The mod jar is written to `build/libs/villager_workers-0.3.2.jar`.
+The mod jar is written to `build/libs/villager_workers-0.4.0.jar`.
 
 A development client:
 

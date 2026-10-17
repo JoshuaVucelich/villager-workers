@@ -412,8 +412,10 @@ public final class WorkerServer {
     private static void scheduleHireOffer(ServerPlayer player, Villager villager, String intendedName) {
         UUID playerId = player.getUUID();
         UUID villagerId = villager.getUUID();
-        player.server.execute(() -> {
-            ServerPlayer online = player.server.getPlayerList().getPlayer(playerId);
+        net.minecraft.server.MinecraftServer server = player.server;
+        // Vanilla applies the name tag after this event returns. Queue the next tick, or the name is still the old one.
+        server.tell(new net.minecraft.server.TickTask(server.getTickCount() + 1, () -> {
+            ServerPlayer online = server.getPlayerList().getPlayer(playerId);
             if (online == null) {
                 return;
             }
@@ -427,7 +429,7 @@ public final class WorkerServer {
             }
             PENDING_HIRES.put(playerId, new PendingHire(villagerId, System.currentTimeMillis() + HIRE_TIMEOUT_MS));
             PacketDistributor.sendToPlayer(online, new ModPayloads.OpenHireScreenPayload(villagerId, current.getString()));
-        });
+        }));
     }
 
     private static Villager findWorkerEntity(ServerPlayer player, UUID villagerId) {

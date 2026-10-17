@@ -71,6 +71,7 @@ neoForge {
         gameTestServer {
             type = "gameTestServer"
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            logLevel = org.slf4j.event.Level.INFO
         }
 
         data {
@@ -125,10 +126,17 @@ dependencies {
     compileOnly("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
     compileOnly("dev.engine-room.flywheel:flywheel-neoforge-api-${minecraft_version}:${flywheel_version}")
     compileOnly("com.tterrag.registrate:Registrate:${registrate_version}")
-    localRuntime("com.simibubi.create:create-${minecraft_version}:${create_version}")
+    // Create's POM marks optional integrations as ordinary runtime dependencies.
+    localRuntime("com.simibubi.create:create-${minecraft_version}:${create_version}") { transitive = false }
     localRuntime("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
     localRuntime("dev.engine-room.flywheel:flywheel-neoforge-${minecraft_version}:${flywheel_version}")
     localRuntime("com.tterrag.registrate:Registrate:${registrate_version}")
+
+    // Optional jars for a pack-loaded game test server: ./gradlew runGameTestServer -PpackMods=/path/to/mods
+    def packMods = findProperty("packMods")
+    if (packMods) {
+        localRuntime fileTree(packMods) { include "*.jar" }
+    }
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
@@ -160,6 +168,7 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
             minecraft_version      : minecraft_version,
             minecraft_version_range: minecraft_version_range,
             neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
             loader_version_range   : loader_version_range,
             mod_id                 : mod_id,
             mod_name               : mod_name,

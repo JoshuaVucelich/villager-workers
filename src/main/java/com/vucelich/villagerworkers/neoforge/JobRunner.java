@@ -100,6 +100,7 @@ public final class JobRunner {
         String stumpItem = "";
         List<BlockPos> walls = List.of();
         boolean wallsReady;
+        long rescanAt;
     }
 
     private JobRunner() {}
@@ -143,6 +144,7 @@ public final class JobRunner {
             runtime.stump = null;
             runtime.walls = List.of();
             runtime.wallsReady = false;
+            runtime.rescanAt = 0L;
         }
         if (data.job() == WorkerJob.MINER && runtime.phase == Phase.LEAVES) {
             runtime.phase = Phase.LOGS;
@@ -172,6 +174,19 @@ public final class JobRunner {
         }
         if (runtime.phase == Phase.DONE) {
             release(villager, data, runtime);
+            if (runtime.rescanAt == 0L) {
+                runtime.rescanAt = level.getGameTime() + 20L;
+            } else if (level.getGameTime() >= runtime.rescanAt) {
+                runtime.phase = Phase.LOGS;
+                runtime.cursor = 0;
+                runtime.foundThisPass = false;
+                runtime.tree = List.of();
+                runtime.treeIndex = 0;
+                runtime.stump = null;
+                runtime.walls = List.of();
+                runtime.wallsReady = false;
+                runtime.rescanAt = 0L;
+            }
             return;
         }
         BlockPos next = nextTarget(level, villager, data, runtime);
@@ -809,7 +824,7 @@ public final class JobRunner {
                 || (data.lumberjack().clearLeaves() && state.is(BlockTags.LEAVES));
         String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
         boolean whitelisted = data.breakWhitelist().stream().anyMatch(entry -> entry.toString().equals(id));
-        boolean reserved = reserved(level, data, pos);
+        boolean reserved = reserved(level, data, pos) || AssemblyGuards.occupied(level, pos);
         return BreakRules.allow(
                 data.activity() == WorkerActivity.WORKING && (data.job() == WorkerJob.LUMBERJACK || data.job() == WorkerJob.MINER),
                 WorkVolumes.isDig(data, level.dimension().location(), pos) || WorkVolumes.isWall(data, level.dimension().location(), pos),
