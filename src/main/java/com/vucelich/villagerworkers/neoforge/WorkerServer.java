@@ -51,6 +51,14 @@ public final class WorkerServer {
 
     private record PendingHire(UUID villagerId, long expiresAt) {}
 
+    /** Ages a pending hire so tests can check the timeout without waiting a minute. */
+    static void expirePendingHire(UUID playerId) {
+        PendingHire pending = PENDING_HIRES.remove(playerId);
+        if (pending != null) {
+            PENDING_HIRES.put(playerId, new PendingHire(pending.villagerId(), System.currentTimeMillis() - 5_000L));
+        }
+    }
+
     private WorkerServer() {}
 
     public static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
