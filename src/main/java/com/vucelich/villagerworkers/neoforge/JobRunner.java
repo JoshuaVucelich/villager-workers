@@ -104,6 +104,7 @@ public final class JobRunner {
         boolean wallsReady;
         long rescanAt;
         boolean leftWork;
+        boolean shipGuardNoted;
     }
 
     private JobRunner() {}
@@ -145,8 +146,17 @@ public final class JobRunner {
         } else if (resume) {
             restartPass(runtime);
         }
+        AssemblyGuards.poll(level);
         if (AssemblyGuards.shipGuardFailed()) {
-            OwnerNotices.report(villager, data, ProblemCode.SHIP_GUARD, "");
+            if (!runtime.shipGuardNoted) {
+                OwnerNotices.report(villager, data, ProblemCode.SHIP_GUARD, "");
+                runtime.shipGuardNoted = true;
+            }
+        } else if (runtime.shipGuardNoted) {
+            runtime.shipGuardNoted = false;
+            if (data.problem().code() == ProblemCode.SHIP_GUARD) {
+                data.setProblem(WorkerProblem.NONE);
+            }
         }
         if (data.job() == WorkerJob.MINER && runtime.phase == Phase.LEAVES) {
             runtime.phase = Phase.LOGS;
@@ -178,7 +188,10 @@ public final class JobRunner {
             release(villager, data, runtime);
             long now = level.getGameTime();
             if (runtime.rescanAt == 0L) {
-                runtime.rescanAt = now + ActionPace.RESCAN_TICKS;
+                int scanTicks = emptyScanTicks(data, runtime);
+                runtime.rescanAt = now
+                        + ActionPace.rescanDelay(scanTicks)
+                        + ActionPace.rescanJitter(villager.getUUID());
             } else if (now >= runtime.rescanAt) {
                 restartPass(runtime);
             }
@@ -335,6 +348,8 @@ public final class JobRunner {
     }
 
     private static void restartPass(Runtime runtime) {
+        BlockPos stump = runtime.stump;
+        String stumpItem = runtime.stumpItem;
         runtime.phase = Phase.LOGS;
         runtime.cursor = 0;
         runtime.foundThisPass = false;
@@ -342,11 +357,26 @@ public final class JobRunner {
         runtime.progress = 0;
         runtime.tree = List.of();
         runtime.treeIndex = 0;
-        runtime.stump = null;
-        runtime.stumpItem = "";
         runtime.walls = List.of();
         runtime.wallsReady = false;
         runtime.rescanAt = 0L;
+        runtime.stump = stump;
+        runtime.stumpItem = stumpItem == null ? "" : stumpItem;
+    }
+
+    /** Ticks an empty pass spends inside the scan budget, including a second leaves walk and any walls. */
+    private static int emptyScanTicks(WorkerData data, Runtime runtime) {
+        int cells = WorkVolumes.digCount(data);
+        if (data.job() == WorkerJob.LUMBERJACK && data.lumberjack().clearLeaves()) {
+            cells *= 2;
+        }
+        if (runtime.wallsReady) {
+            cells += runtime.walls.size();
+        }
+        if (cells <= 0) {
+            return 0;
+        }
+        return (cells + SCAN_BUDGET - 1) / SCAN_BUDGET;
     }
 
     private static void advance(WorkerData data, Runtime runtime) {

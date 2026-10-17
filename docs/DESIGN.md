@@ -260,7 +260,7 @@ Problems are sent as a system chat line to the owner only, and only if the owner
 | `CHEST_FULL` | The destination chest cannot take the drops. Drops stay on the ground at the worker, and work pauses. M2 |
 | `STUCK` | The worker has a target and has not moved for 10 seconds. Retry the path once. If still stuck, pause. M2 |
 | `BLOCKED` | Builder found a solid block that does not match the schematic. Skip that position. M3 |
-| `SHIP_GUARD` | Sable is loaded, but the ship lookup failed. Every block is treated as occupied, and the owner is told. Work does not dig through that failure. |
+| `SHIP_GUARD` | Sable is loaded, but the ship lookup failed. Every block is treated as occupied, and the owner is told once. The lookup is tried again after 600 ticks (30 seconds). A later problem can replace this one. |
 
 `HUNGRY` and `HURT` can both be true. Send each under its own rate limit. Work does not stop for hungry or hurt. Work does pause for a missing tool, a missing or full chest, no materials, or stuck.
 
@@ -289,7 +289,7 @@ The worker honors the `doTileDrops` game rule for the block item. When it is off
 
 Tools come from the tool chest: an axe for the lumberjack, a pickaxe for the miner. The worker equips one, and vanilla durability applies. At 1 remaining durability the worker stops, returns the tool if it can, and messages the owner. On death the equipped tool drops with the villager. On stop or idle the tool is put back in the tool chest when that chest has room.
 
-Replanting places one matching sapling on a dirt-like block inside the lumberjack box after that trunk's logs are gone. It does not place outside the box, and it does not replace a non-dirt block. The sapling is taken from the sapling chest. While the worker is still working, a finished lumberjack or miner pass starts again after 800 ticks (40 seconds), so a log, a regrown tree, or ore that appears later in the volume is still taken. That later pass uses the same per-tick scan budget and the ship cache. Stop then resume starts a pass on the next tick.
+Replanting places one matching sapling on a dirt-like block inside the lumberjack box after that trunk's logs are gone. It does not place outside the box, and it does not replace a non-dirt block. The sapling is taken from the sapling chest. A pass that starts over keeps a stump that is still waiting for that sapling. While the worker is still working, a finished lumberjack or miner pass starts again after a wait of at least 800 ticks (40 seconds). The wait is also at least ten times the ticks an empty scan of that volume takes, including a leaves walk and any wall cells, so the scan stays under a tenth of the cycle. Each worker adds a stable offset of 0 to 200 ticks from its id. That later pass uses the same per-tick scan budget and the ship cache. Stop then resume starts a pass on the next tick.
 
 ## Builder
 

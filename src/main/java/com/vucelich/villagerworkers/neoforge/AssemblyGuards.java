@@ -1,5 +1,6 @@
 package com.vucelich.villagerworkers.neoforge;
 
+import com.vucelich.villagerworkers.common.ActionPace;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
@@ -21,6 +22,7 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
  */
 final class AssemblyGuards {
     private static boolean shipLookupFailed;
+    private static long shipRetryAt = Long.MIN_VALUE;
     private static boolean shipBound;
     private static MethodHandle shipContainer;
     private static MethodHandle shipInBounds;
@@ -40,10 +42,19 @@ final class AssemblyGuards {
         return shipLookupFailed;
     }
 
+    /** After the cooldown, try the ship lookup once even if this tick does not scan a block. */
+    static void poll(ServerLevel level) {
+        if (level == null || !shipLookupFailed || level.getGameTime() < shipRetryAt) {
+            return;
+        }
+        onShip(level, BlockPos.ZERO);
+    }
+
     static void onServerStopped(ServerStoppedEvent event) {
         cacheLevel = new WeakReference<>(null);
         cacheTick = Long.MIN_VALUE;
         cache.clear();
+        shipRetryAt = Long.MIN_VALUE;
     }
 
     static boolean occupied(ServerLevel level, BlockPos pos) {
@@ -70,15 +81,17 @@ final class AssemblyGuards {
         if (!ModList.get().isLoaded("sable")) {
             return false;
         }
-        if (shipLookupFailed) {
+        long now = level.getGameTime();
+        if (shipLookupFailed && now < shipRetryAt) {
             return true;
         }
+        shipLookupFailed = false;
         try {
             if (!shipBound) {
                 bindShip();
             }
             if (shipContainer == null || shipInBounds == null || shipPlot == null || shipSubLevel == null) {
-                failShip(null);
+                failShip(null, now);
                 return true;
             }
             Object container = shipContainer.invoke(level);
@@ -91,7 +104,7 @@ final class AssemblyGuards {
             Object plot = shipPlot.invoke(container, new ChunkPos(pos));
             return plot != null && shipSubLevel.invoke(plot) != null;
         } catch (Throwable exception) {
-            failShip(exception);
+            failShip(exception, now);
             return true;
         }
     }
@@ -118,8 +131,9 @@ final class AssemblyGuards {
         shipBound = true;
     }
 
-    private static void failShip(Throwable exception) {
+    private static void failShip(Throwable exception, long now) {
         shipLookupFailed = true;
+        shipRetryAt = now + ActionPace.SHIP_RETRY_TICKS;
         if (exception == null) {
             VillagerWorkersMod.LOGGER.warn("Could not ask Sable whether a block is on a ship. Treating those blocks as occupied.");
             return;

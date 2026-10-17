@@ -602,26 +602,36 @@ public class AcceptanceGameTests {
         });
     }
 
-    @GameTest(template = "platform", timeoutTicks = 200)
+    @GameTest(template = "platform", timeoutTicks = 300)
     public static void resumeStartsAnotherPass(GameTestHelper helper) {
         RecordingPlayer owner = player(helper);
         Villager worker = villager(helper, 2, 1, 3, "Resume");
         WorkerData data = minerAt(helper, worker, owner, new BlockPos(2, 1, 2), true);
         ServerLevel level = helper.getLevel();
         BlockPos stone = helper.absolutePos(new BlockPos(2, 1, 2));
+        boolean[] cleared = {false};
         boolean[] stopped = {false};
         boolean[] resumed = {false};
+        long[] clearedAt = {-1L};
         long[] stoppedAt = {-1L};
         long[] resumedAt = {-1L};
         helper.onEachTick(() -> {
-            if (!stopped[0] && level.getBlockState(stone).isAir()) {
-                stopped[0] = true;
+            if (!cleared[0] && level.getBlockState(stone).isAir()) {
+                cleared[0] = true;
+                clearedAt[0] = level.getGameTime();
+                return;
+            }
+            // One cell finishes on the tick after the break cooldown, well before the rescan wait.
+            if (cleared[0] && !stopped[0] && level.getGameTime() >= clearedAt[0] + 40L) {
+                helper.assertTrue(level.getBlockState(stone).isAir(), "finished pass left the cell empty");
                 level.setBlockAndUpdate(stone, Blocks.STONE.defaultBlockState());
                 data.setActivity(WorkerActivity.STOPPED);
+                stopped[0] = true;
                 stoppedAt[0] = level.getGameTime();
                 return;
             }
             if (stopped[0] && !resumed[0] && level.getGameTime() >= stoppedAt[0] + 2L) {
+                helper.assertTrue(level.getBlockState(stone).is(Blocks.STONE), "finished pass did not mine the new stone");
                 resumed[0] = true;
                 resumedAt[0] = level.getGameTime();
                 data.setActivity(WorkerActivity.WORKING);

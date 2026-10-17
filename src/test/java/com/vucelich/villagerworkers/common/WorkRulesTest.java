@@ -131,6 +131,21 @@ class WorkRulesTest {
     }
 
     @Test
+    void rescanWaitStaysUnderATenthOfTheCycle() {
+        assertEquals(ActionPace.RESCAN_TICKS, ActionPace.rescanDelay(0));
+        assertEquals(ActionPace.RESCAN_TICKS, ActionPace.rescanDelay(80));
+        assertEquals(810L, ActionPace.rescanDelay(81));
+        long delay = ActionPace.rescanDelay(500);
+        assertEquals(5000L, delay);
+        assertTrue(500.0 / (delay + 500) < 0.10);
+        UUID id = UUID.fromString("12345678-1234-1234-1234-123456789abc");
+        int jitter = ActionPace.rescanJitter(id);
+        assertTrue(jitter >= 0 && jitter <= ActionPace.RESCAN_JITTER);
+        assertEquals(jitter, ActionPace.rescanJitter(id));
+        assertEquals(0, ActionPace.rescanJitter(null));
+    }
+
+    @Test
     void workProblemsStayOnTheStatusLine() {
         WorkerProblem full = new WorkerProblem(ProblemCode.CHEST_FULL, "");
         assertEquals("chest full", StatusText.problem(false, false, full));
