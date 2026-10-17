@@ -152,6 +152,9 @@ public final class CreateBuilder {
         if (requirement != null && requirement.isInvalid() && !matches) {
             choice = PlacementRules.Choice.BLOCKED;
         }
+        if (choice == PlacementRules.Choice.PLACE && AssemblyGuards.occupied(level, target)) {
+            choice = PlacementRules.Choice.BLOCKED;
+        }
         return switch (choice) {
             case SKIP -> Step.CONTINUE;
             case BLOCKED -> {
@@ -171,7 +174,19 @@ public final class CreateBuilder {
                 }
                 yield Step.HOLD;
             }
-            case PLACE -> place(level, villager, data, chests, requirement, target, wanted);
+            case PLACE -> {
+                if (!inReach(villager, target)) {
+                    session.walkTo = target.immutable();
+                    walk(villager, session.walkTo);
+                    yield Step.HOLD;
+                }
+                Step placed = place(level, villager, data, chests, requirement, target, wanted);
+                if (placed == Step.HOLD && !inReach(villager, target)) {
+                    session.walkTo = target.immutable();
+                    walk(villager, session.walkTo);
+                }
+                yield placed;
+            }
         };
     }
 
@@ -201,6 +216,15 @@ public final class CreateBuilder {
                 }
                 taken.add(got);
             }
+        }
+        if (!inReach(villager, target)) {
+            refund(villager, chests, taken);
+            return Step.HOLD;
+        }
+        if (AssemblyGuards.occupied(level, target)) {
+            refund(villager, chests, taken);
+            OwnerNotices.report(villager, data, ProblemCode.BLOCKED, target.getX() + " " + target.getY() + " " + target.getZ());
+            return Step.CONTINUE;
         }
         BlockState previous = level.getBlockState(target);
         var snapshot = BlockSnapshot.create(level.dimension(), level, target);

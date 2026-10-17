@@ -12,8 +12,10 @@ import com.vucelich.villagerworkers.common.WorkerJob;
 import com.vucelich.villagerworkers.common.WorkerProblem;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.core.BlockPos;
@@ -100,7 +102,6 @@ public final class JobRunner {
         String stumpItem = "";
         List<BlockPos> walls = List.of();
         boolean wallsReady;
-        long rescanAt;
     }
 
     private JobRunner() {}
@@ -144,7 +145,6 @@ public final class JobRunner {
             runtime.stump = null;
             runtime.walls = List.of();
             runtime.wallsReady = false;
-            runtime.rescanAt = 0L;
         }
         if (data.job() == WorkerJob.MINER && runtime.phase == Phase.LEAVES) {
             runtime.phase = Phase.LOGS;
@@ -173,22 +173,7 @@ public final class JobRunner {
             return;
         }
         if (runtime.phase == Phase.DONE) {
-            // Stay on the job while WORKING. Wait one second, then scan again so a log or ore that appears
-            // later is still taken. The wall list is cleared with the rest of the pass.
             release(villager, data, runtime);
-            if (runtime.rescanAt == 0L) {
-                runtime.rescanAt = level.getGameTime() + 20L;
-            } else if (level.getGameTime() >= runtime.rescanAt) {
-                runtime.phase = Phase.LOGS;
-                runtime.cursor = 0;
-                runtime.foundThisPass = false;
-                runtime.tree = List.of();
-                runtime.treeIndex = 0;
-                runtime.stump = null;
-                runtime.walls = List.of();
-                runtime.wallsReady = false;
-                runtime.rescanAt = 0L;
-            }
             return;
         }
         BlockPos next = nextTarget(level, villager, data, runtime);
@@ -383,7 +368,7 @@ public final class JobRunner {
             return false;
         }
         if (state.isAir() || state.canBeReplaced()) {
-            return true;
+            return !reserved(level, data, pos) && !AssemblyGuards.occupied(level, pos);
         }
         return legal(level, null, data, pos, state, true);
     }
@@ -462,7 +447,7 @@ public final class JobRunner {
             rememberStump(level, data, runtime, pos, state);
         }
         if (state.is(BlockTags.BEDS)) {
-            clearOtherBedHalf(level, pos, state);
+            clearOtherBedHalf(level, villager, data, pos, state);
         }
         ServerPlayer ownerPlayer = owner(villager, data);
         if (ownerPlayer != null && !creativeDestroyDupes(ownerPlayer, state)) {
@@ -513,8 +498,25 @@ public final class JobRunner {
             pause(villager, data, runtime, ProblemCode.OUT_OF_MATERIALS, wall.toString());
             return;
         }
+        if (!inReach(villager, pos)) {
+            runtime.walkTo = pos.immutable();
+            runtime.controlling = true;
+            walk(villager, runtime);
+            return;
+        }
+        BlockState here = level.getBlockState(pos);
+        boolean open = here.isAir() || here.canBeReplaced();
+        if (AssemblyGuards.occupied(level, pos) || reserved(level, data, pos) || (!open && !legal(level, villager, data, pos, here, false))) {
+            runtime.breaking = null;
+            return;
+        }
         PlaceResult placed = takeAndPlace(level, villager, data, chest, wall, pos);
         if (placed == PlaceResult.WAIT) {
+            if (!inReach(villager, pos)) {
+                runtime.walkTo = pos.immutable();
+                runtime.controlling = true;
+                walk(villager, runtime);
+            }
             return;
         }
         if (placed == PlaceResult.MISSING) {
@@ -544,6 +546,17 @@ public final class JobRunner {
         if (!ground.is(BlockTags.DIRT) || !(here.isAir() || here.canBeReplaced())) {
             return;
         }
+        if (AssemblyGuards.occupied(level, pos) || reserved(level, data, pos)) {
+            return;
+        }
+        if (!inReach(villager, pos)) {
+            runtime.stump = pos;
+            runtime.stumpItem = item;
+            runtime.walkTo = pos.immutable();
+            runtime.controlling = true;
+            walk(villager, runtime);
+            return;
+        }
         if (owner(villager, data) == null) {
             runtime.stump = pos;
             runtime.stumpItem = item;
@@ -561,6 +574,14 @@ public final class JobRunner {
         if (placed == PlaceResult.WAIT) {
             runtime.stump = pos;
             runtime.stumpItem = item;
+            if (!inReach(villager, pos)) {
+                runtime.walkTo = pos.immutable();
+                runtime.controlling = true;
+                walk(villager, runtime);
+            }
+            return;
+        }
+        if (placed == PlaceResult.DENIED) {
             return;
         }
         if (placed != PlaceResult.PLACED) {
@@ -618,6 +639,14 @@ public final class JobRunner {
 
     private static PlaceResult takeAndPlace(
             ServerLevel level, Villager villager, WorkerData data, Container chest, ResourceLocation itemId, BlockPos pos) {
+        if (!level.isLoaded(pos) || !inReach(villager, pos)) {
+            return PlaceResult.WAIT;
+        }
+        BlockState occupying = level.getBlockState(pos);
+        boolean open = occupying.isAir() || occupying.canBeReplaced();
+        if (AssemblyGuards.occupied(level, pos) || reserved(level, data, pos) || (!open && !legal(level, villager, data, pos, occupying, false))) {
+            return PlaceResult.DENIED;
+        }
         ItemStack taken = ContainerAccess.takeBest(chest, stack -> itemId.equals(BuiltInRegistries.ITEM.getKey(stack.getItem())));
         if (taken.isEmpty()) {
             return PlaceResult.MISSING;
@@ -663,25 +692,27 @@ public final class JobRunner {
 
     private static void collectTree(ServerLevel level, WorkerData data, Runtime runtime, BlockPos start) {
         List<BlockPos> tree = new ArrayList<>();
+        Set<BlockPos> seen = new HashSet<>();
         ArrayDeque<BlockPos> queue = new ArrayDeque<>();
         String kind = SaplingKinds.saplingForLog(BuiltInRegistries.BLOCK.getKey(level.getBlockState(start).getBlock()).toString());
-        queue.add(start);
+        queue.add(start.immutable());
         while (!queue.isEmpty() && tree.size() < TREE_LIMIT) {
             BlockPos pos = queue.removeFirst();
-            if (tree.contains(pos) || !level.isLoaded(pos)) {
+            BlockPos fixed = pos.immutable();
+            if (!seen.add(fixed) || !level.isLoaded(fixed)) {
                 continue;
             }
-            BlockState state = level.getBlockState(pos);
-            if (!state.is(BlockTags.LOGS) || !WorkVolumes.isDig(data, level.dimension().location(), pos)) {
+            BlockState state = level.getBlockState(fixed);
+            if (!state.is(BlockTags.LOGS) || !WorkVolumes.isDig(data, level.dimension().location(), fixed)) {
                 continue;
             }
             String other = SaplingKinds.saplingForLog(BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
             if (kind != null && !kind.equals(other)) {
                 continue;
             }
-            tree.add(pos.immutable());
+            tree.add(fixed);
             for (var direction : net.minecraft.core.Direction.values()) {
-                queue.add(pos.relative(direction));
+                queue.add(fixed.relative(direction));
             }
         }
         runtime.tree = tree;
@@ -826,8 +857,7 @@ public final class JobRunner {
                 || (data.lumberjack().clearLeaves() && state.is(BlockTags.LEAVES));
         String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
         boolean whitelisted = data.breakWhitelist().stream().anyMatch(entry -> entry.toString().equals(id));
-        boolean reserved = reserved(level, data, pos) || AssemblyGuards.occupied(level, pos);
-        return BreakRules.allow(
+        boolean cheap = BreakRules.allow(
                 data.activity() == WorkerActivity.WORKING && (data.job() == WorkerJob.LUMBERJACK || data.job() == WorkerJob.MINER),
                 WorkVolumes.isDig(data, level.dimension().location(), pos) || WorkVolumes.isWall(data, level.dimension().location(), pos),
                 reach,
@@ -835,9 +865,13 @@ public final class JobRunner {
                 state.getDestroySpeed(level, pos),
                 id,
                 state.hasBlockEntity(),
-                reserved,
+                reserved(level, data, pos),
                 whitelisted,
                 lumber);
+        if (!cheap) {
+            return false;
+        }
+        return !AssemblyGuards.occupied(level, pos);
     }
 
     private static boolean reserved(ServerLevel level, WorkerData data, BlockPos pos) {
@@ -1003,16 +1037,24 @@ public final class JobRunner {
         return ResourceLocation.tryParse(raw);
     }
 
-    private static void clearOtherBedHalf(ServerLevel level, BlockPos pos, BlockState state) {
+    private static void clearOtherBedHalf(ServerLevel level, Villager villager, WorkerData data, BlockPos pos, BlockState state) {
         if (!state.hasProperty(BedBlock.PART) || !state.hasProperty(BedBlock.FACING)) {
             return;
         }
         BedPart part = state.getValue(BedBlock.PART);
         var facing = state.getValue(BedBlock.FACING);
         BlockPos other = part == BedPart.HEAD ? pos.relative(facing.getOpposite()) : pos.relative(facing);
-        if (level.getBlockState(other).is(BlockTags.BEDS)) {
-            level.setBlock(other, level.getFluidState(other).createLegacyBlock(), Block.UPDATE_ALL);
+        BlockState otherState = level.getBlockState(other);
+        if (!otherState.is(BlockTags.BEDS)) {
+            return;
         }
+        if (!legal(level, villager, data, other, otherState, false)) {
+            return;
+        }
+        if (ownerAllows(level, villager, data, other, otherState) != BreakGate.ALLOW) {
+            return;
+        }
+        level.setBlock(other, level.getFluidState(other).createLegacyBlock(), Block.UPDATE_ALL);
     }
 
     private static void spawn(Villager villager, ItemStack stack) {

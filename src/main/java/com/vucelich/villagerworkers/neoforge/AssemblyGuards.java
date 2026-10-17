@@ -1,19 +1,21 @@
 package com.vucelich.villagerworkers.neoforge;
 
-import com.simibubi.create.content.contraptions.AbstractContraptionEntity;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.util.HashMap;
+import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.fml.ModList;
 
 /**
  * Blocks that belong to a moving assembly are not ordinary world blocks.
- * Sable is loaded by reflection so this mod still starts when Sable is absent.
- * The Create type is only touched after Create is confirmed loaded.
+ * Sable and Create are asked by name so this class still loads when either mod is absent.
+ * A failed lookup while the mod is present is occupied, so a worker does not dig through a ship it cannot see.
  */
 final class AssemblyGuards {
     private static boolean shipLookupFailed;
@@ -22,6 +24,12 @@ final class AssemblyGuards {
     private static MethodHandle shipInBounds;
     private static MethodHandle shipPlot;
     private static MethodHandle shipSubLevel;
+    private static boolean contraptionLookupFailed;
+    private static boolean contraptionBound;
+    private static Class<? extends Entity> contraptionType;
+    private static ServerLevel cacheLevel;
+    private static long cacheTick = Long.MIN_VALUE;
+    private static final Map<BlockPos, Boolean> cache = new HashMap<>();
 
     private AssemblyGuards() {}
 
@@ -29,60 +37,126 @@ final class AssemblyGuards {
         if (level == null || pos == null) {
             return false;
         }
-        return onShip(level, pos) || onContraption(level, pos);
+        BlockPos key = pos.immutable();
+        long tick = level.getGameTime();
+        if (cacheLevel != level || cacheTick != tick) {
+            cacheLevel = level;
+            cacheTick = tick;
+            cache.clear();
+        }
+        Boolean cached = cache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        boolean value = onShip(level, key) || onContraption(level, key);
+        cache.put(key, value);
+        return value;
     }
 
     private static boolean onShip(ServerLevel level, BlockPos pos) {
         if (!ModList.get().isLoaded("sable")) {
             return false;
         }
+        if (shipLookupFailed) {
+            return true;
+        }
         try {
             if (!shipBound) {
                 bindShip();
             }
-            if (shipContainer == null) {
-                return false;
+            if (shipContainer == null || shipInBounds == null || shipPlot == null || shipSubLevel == null) {
+                failShip(null);
+                return true;
             }
             Object container = shipContainer.invoke(level);
-            if (container == null || !((boolean) shipInBounds.invoke(container, pos))) {
+            if (container == null) {
+                return false;
+            }
+            if (!((boolean) shipInBounds.invoke(container, pos))) {
                 return false;
             }
             Object plot = shipPlot.invoke(container, new ChunkPos(pos));
             return plot != null && shipSubLevel.invoke(plot) != null;
         } catch (Throwable exception) {
-            if (!shipLookupFailed) {
-                shipLookupFailed = true;
-                VillagerWorkersMod.LOGGER.warn("Could not ask Sable whether a block is on a ship", exception);
-            }
-            return false;
+            failShip(exception);
+            return true;
         }
     }
 
     /**
      * {@code Class.getMethod} walks every overload, including Sable's client one, and the dedicated server
      * then tries to load {@code ClientLevel}. A direct method handle names only the server overload.
+     * {@code shipBound} is set only after every handle exists.
      */
     private static void bindShip() throws ReflectiveOperationException {
-        shipBound = true;
         MethodHandles.Lookup lookup = MethodHandles.publicLookup();
         Class<?> containers = Class.forName("dev.ryanhcode.sable.api.sublevel.SubLevelContainer");
         Class<?> serverContainers = Class.forName("dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer");
         Class<?> plot = Class.forName("dev.ryanhcode.sable.sublevel.plot.LevelPlot");
         Class<?> subLevel = Class.forName("dev.ryanhcode.sable.sublevel.SubLevel");
-        shipContainer = lookup.findStatic(containers, "getContainer", MethodType.methodType(serverContainers, ServerLevel.class));
-        shipInBounds = lookup.findVirtual(containers, "inBounds", MethodType.methodType(boolean.class, BlockPos.class));
-        shipPlot = lookup.findVirtual(containers, "getPlot", MethodType.methodType(plot, ChunkPos.class));
-        shipSubLevel = lookup.findVirtual(plot, "getSubLevel", MethodType.methodType(subLevel));
+        MethodHandle container = lookup.findStatic(containers, "getContainer", MethodType.methodType(serverContainers, ServerLevel.class));
+        MethodHandle inBounds = lookup.findVirtual(containers, "inBounds", MethodType.methodType(boolean.class, BlockPos.class));
+        MethodHandle plotAt = lookup.findVirtual(containers, "getPlot", MethodType.methodType(plot, ChunkPos.class));
+        MethodHandle sub = lookup.findVirtual(plot, "getSubLevel", MethodType.methodType(subLevel));
+        shipContainer = container;
+        shipInBounds = inBounds;
+        shipPlot = plotAt;
+        shipSubLevel = sub;
+        shipBound = true;
+    }
+
+    private static void failShip(Throwable exception) {
+        shipLookupFailed = true;
+        if (exception == null) {
+            VillagerWorkersMod.LOGGER.warn("Could not ask Sable whether a block is on a ship. Treating those blocks as occupied.");
+            return;
+        }
+        VillagerWorkersMod.LOGGER.warn("Could not ask Sable whether a block is on a ship. Treating those blocks as occupied.", exception);
     }
 
     private static boolean onContraption(ServerLevel level, BlockPos pos) {
         if (!ModList.get().isLoaded("create")) {
             return false;
         }
-        AABB box = new AABB(pos);
-        return !level.getEntitiesOfClass(
-                AbstractContraptionEntity.class,
-                box.inflate(0.5D),
-                entity -> entity.isAlive() && entity.getBoundingBox().intersects(box)).isEmpty();
+        if (contraptionLookupFailed) {
+            return true;
+        }
+        try {
+            if (!contraptionBound) {
+                bindContraption();
+            }
+            if (contraptionType == null) {
+                failContraption(null);
+                return true;
+            }
+            AABB box = new AABB(pos);
+            return !level.getEntitiesOfClass(
+                    contraptionType,
+                    box.inflate(0.5D),
+                    entity -> entity.isAlive() && entity.getBoundingBox().intersects(box)).isEmpty();
+        } catch (Throwable exception) {
+            failContraption(exception);
+            return true;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void bindContraption() throws ClassNotFoundException {
+        Class<?> found = Class.forName("com.simibubi.create.content.contraptions.AbstractContraptionEntity");
+        if (!Entity.class.isAssignableFrom(found)) {
+            throw new ClassNotFoundException(found.getName());
+        }
+        contraptionType = (Class<? extends Entity>) found;
+        contraptionBound = true;
+    }
+
+    private static void failContraption(Throwable exception) {
+        contraptionLookupFailed = true;
+        if (exception == null) {
+            VillagerWorkersMod.LOGGER.warn("Could not ask Create whether a block is on a contraption. Treating those blocks as occupied.");
+            return;
+        }
+        VillagerWorkersMod.LOGGER.warn(
+                "Could not ask Create whether a block is on a contraption. Treating those blocks as occupied.", exception);
     }
 }

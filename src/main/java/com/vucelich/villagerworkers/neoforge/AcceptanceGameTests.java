@@ -2,6 +2,8 @@ package com.vucelich.villagerworkers.neoforge;
 
 import com.mojang.authlib.GameProfile;
 import com.simibubi.create.AllDataComponents;
+import com.simibubi.create.content.contraptions.OrientedContraptionEntity;
+import com.simibubi.create.content.contraptions.bearing.BearingContraption;
 import com.simibubi.create.content.schematics.SchematicItem;
 import com.simibubi.create.content.schematics.cannon.SchematicannonBlockEntity;
 import com.simibubi.create.foundation.utility.CreatePaths;
@@ -39,6 +41,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -71,6 +74,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.event.ServerChatEvent;
@@ -485,7 +489,7 @@ public class AcceptanceGameTests {
             WorkerData farData = hire(far, owner);
             farData.setActivity(WorkerActivity.WORKING);
             helper.assertTrue(added && level.getEntity(far.getUUID()) == far, "far worker is loaded");
-            helper.assertTrue(far.distanceToSqr(owner) > 128.0 * 128.0, "placed beyond the old chat radius");
+            helper.assertTrue(far.distanceToSqr(owner) > 128.0 * 128.0, "loaded worker is farther than 128 blocks");
             WorkerServer.onChat(chat(owner, "@Farmer stop"));
             helper.assertTrue(farData.activity() == WorkerActivity.STOPPED, "chat reaches a loaded worker across the dimension");
             done(helper, owner, stranger);
@@ -493,7 +497,7 @@ public class AcceptanceGameTests {
     }
 
     @GameTest(template = "platform", timeoutTicks = 400)
-    public static void lumberjackCutsReplantsAndContinues(GameTestHelper helper) {
+    public static void lumberjackCutsReplantsAndStops(GameTestHelper helper) {
         RecordingPlayer owner = player(helper);
         Villager villager = villager(helper, 2, 1, 3, "Birch");
         WorkerData data = hire(villager, owner);
@@ -522,19 +526,22 @@ public class AcceptanceGameTests {
                 Optional.of(saplings),
                 Optional.of(tools)));
         boolean[] planted = {false};
+        long[] readyAt = {-1L};
         helper.onEachTick(() -> {
-            if (!planted[0] && level.getBlockState(inside).is(Blocks.OAK_SAPLING)) {
+            if (!planted[0] && level.getBlockState(inside).is(Blocks.OAK_SAPLING) && level.getBlockState(leafIn).isAir()) {
                 planted[0] = true;
+                readyAt[0] = level.getGameTime();
                 level.setBlockAndUpdate(later, Blocks.OAK_LOG.defaultBlockState());
             }
         });
         helper.succeedWhen(() -> {
             helper.assertTrue(planted[0], "sapling planted");
-            helper.assertTrue(level.getBlockState(later).isAir(), "later log was cut");
+            helper.assertTrue(level.getGameTime() > readyAt[0] + 40L, "waited past a finished pass");
+            helper.assertTrue(level.getBlockState(later).is(Blocks.OAK_LOG), "finished pass leaves a later log");
             helper.assertTrue(level.getBlockState(outside).is(Blocks.OAK_LOG), "log outside the box");
             helper.assertTrue(level.getBlockState(leafIn).isAir(), "leaf inside");
             helper.assertTrue(level.getBlockState(leafOut).is(Blocks.OAK_LEAVES), "leaf outside");
-            helper.assertTrue(count(level, logs, Items.OAK_LOG) >= 2, "logs hauled");
+            helper.assertTrue(count(level, logs, Items.OAK_LOG) >= 1, "logs hauled");
             helper.assertTrue(count(level, saplings, Items.OAK_SAPLING) < 4, "sapling taken");
             cleanup(owner);
         });
@@ -1102,6 +1109,67 @@ public class AcceptanceGameTests {
             double millis = level.getServer().getAverageTickTimeNanos() / 1_000_000.0;
             VillagerWorkersMod.LOGGER.info("Average server tick with four workers: {} ms", millis);
             helper.assertTrue(millis < 50.0, "tick time " + millis + " ms");
+            done(helper, owner);
+        });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 120)
+    public static void workersLeaveAssembledContraptionsAlone(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        ServerLevel level = helper.getLevel();
+        Villager worker = villager(helper, 2, 1, 3, "Rigger");
+        WorkerData data = hire(worker, owner);
+        BlockPos origin = helper.absolutePos(new BlockPos(2, 1, 1));
+        BlockPos wall = origin.north();
+        BlockPos ceiling = origin.above().above();
+        level.setBlockAndUpdate(origin, Blocks.STONE.defaultBlockState());
+        level.setBlockAndUpdate(origin.above(), Blocks.STONE.defaultBlockState());
+        BearingContraption contraption = new BearingContraption(false, Direction.UP);
+        contraption.anchor = origin.immutable();
+        AABB cover = new AABB(wall).minmax(new AABB(ceiling)).minmax(new AABB(origin.above()));
+        contraption.bounds = cover;
+        OrientedContraptionEntity entity = OrientedContraptionEntity.create(level, contraption, Direction.UP);
+        entity.setPos(origin.getX() + 0.5, origin.getY(), origin.getZ() + 0.5);
+        entity.setBoundingBox(cover);
+        entity.setNoGravity(true);
+        entity.setDeltaMovement(Vec3.ZERO);
+        helper.assertTrue(level.addFreshEntity(entity), "contraption is loaded");
+        BlockPos regular = barrel(helper, 0, 1, 1, new ItemStack(Items.COBBLESTONE, 32));
+        BlockPos valuables = barrel(helper, 0, 2, 1);
+        BlockPos tools = barrel(helper, 0, 1, 0, new ItemStack(Items.DIAMOND_PICKAXE));
+        data.setJob(WorkerJob.MINER);
+        data.setActivity(WorkerActivity.WORKING);
+        data.setRested(true);
+        data.setMiner(miner(
+                MinerMode.TUNNEL,
+                null,
+                new WorkOrigin(level.dimension().location(), origin, "east"),
+                1,
+                2,
+                1,
+                "minecraft:cobblestone",
+                4,
+                1,
+                1,
+                1,
+                false,
+                regular,
+                valuables,
+                tools));
+        helper.onEachTick(() -> {
+            if (!entity.isAlive()) {
+                return;
+            }
+            entity.setBoundingBox(cover);
+            entity.setDeltaMovement(Vec3.ZERO);
+        });
+        helper.runAtTickTime(80, () -> {
+            helper.assertTrue(entity.isAlive(), "contraption stayed assembled");
+            helper.assertTrue(entity.getBoundingBox().intersects(new AABB(origin)), "contraption covers the stone");
+            helper.assertTrue(level.getBlockState(origin).is(Blocks.STONE), "worker did not break stone on the contraption");
+            helper.assertTrue(level.getBlockState(origin.above()).is(Blocks.STONE), "worker did not break the block above");
+            helper.assertTrue(!level.getBlockState(wall).is(Blocks.COBBLESTONE), "worker did not place a wall on the contraption");
+            helper.assertTrue(!level.getBlockState(ceiling).is(Blocks.COBBLESTONE), "worker did not place a ceiling on the contraption");
             done(helper, owner);
         });
     }
