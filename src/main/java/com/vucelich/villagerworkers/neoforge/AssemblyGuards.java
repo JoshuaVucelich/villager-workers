@@ -3,6 +3,7 @@ package com.vucelich.villagerworkers.neoforge;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.lang.ref.WeakReference;
 import java.util.HashMap;
 import java.util.Map;
 import net.minecraft.core.BlockPos;
@@ -11,6 +12,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.fml.ModList;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 
 /**
  * Blocks that belong to a moving assembly are not ordinary world blocks.
@@ -27,11 +29,22 @@ final class AssemblyGuards {
     private static boolean contraptionLookupFailed;
     private static boolean contraptionBound;
     private static Class<? extends Entity> contraptionType;
-    private static ServerLevel cacheLevel;
+    private static WeakReference<ServerLevel> cacheLevel = new WeakReference<>(null);
     private static long cacheTick = Long.MIN_VALUE;
     private static final Map<BlockPos, Boolean> cache = new HashMap<>();
 
     private AssemblyGuards() {}
+
+    /** Sable is present and the ship lookup failed, so every block is treated as occupied. */
+    static boolean shipGuardFailed() {
+        return shipLookupFailed;
+    }
+
+    static void onServerStopped(ServerStoppedEvent event) {
+        cacheLevel = new WeakReference<>(null);
+        cacheTick = Long.MIN_VALUE;
+        cache.clear();
+    }
 
     static boolean occupied(ServerLevel level, BlockPos pos) {
         if (level == null || pos == null) {
@@ -39,8 +52,8 @@ final class AssemblyGuards {
         }
         BlockPos key = pos.immutable();
         long tick = level.getGameTime();
-        if (cacheLevel != level || cacheTick != tick) {
-            cacheLevel = level;
+        if (cacheLevel.get() != level || cacheTick != tick) {
+            cacheLevel = new WeakReference<>(level);
             cacheTick = tick;
             cache.clear();
         }

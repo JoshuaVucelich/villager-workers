@@ -67,6 +67,7 @@ public final class StatusText {
             case CHEST_FULL -> "[" + who + "] has a full chest.";
             case STUCK -> "[" + who + "] is stuck.";
             case BLOCKED -> "[" + who + "] is blocked at " + item + ".";
+            case SHIP_GUARD -> "[" + who + "] will not dig because the ship check failed.";
             case NONE -> "[" + who + "] has no problem.";
         };
     }
@@ -94,6 +95,7 @@ public final class StatusText {
             case NO_ACCESS -> "cannot open a container";
             case CHEST_FULL -> "chest full";
             case STUCK -> "stuck";
+            case SHIP_GUARD -> "ship check failed";
             default -> work.code().id().replace('_', ' ');
         };
     }

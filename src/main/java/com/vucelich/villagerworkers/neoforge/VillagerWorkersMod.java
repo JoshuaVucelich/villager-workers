@@ -32,6 +32,7 @@ public final class VillagerWorkersMod {
         NeoForge.EVENT_BUS.addListener(WorkerServer::onChat);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onLogout);
         NeoForge.EVENT_BUS.addListener(JobRunner::onDeath);
+        NeoForge.EVENT_BUS.addListener(AssemblyGuards::onServerStopped);
         LOGGER.info("Villager Workers ({}) loaded", VillagerWorkers.MOD_ID);
     }
 

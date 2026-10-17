@@ -6,7 +6,7 @@ M1, M2, and M3 are implemented. Trusted players can operate a worker, but breaki
 
 Order is M1, then M2, then M3. Later issues may persist fields that an earlier issue defined, but they must not start a later milestone's job AI early.
 
-## M1 — Hiring, ownership, permissions, worker GUI, and chat
+## M1 - Hiring, ownership, permissions, worker GUI, and chat
 
 A named adult villager can be hired, shared, and commanded. The screen can save a job and its setup. No block is broken and nothing is built. Start, stop, and come only change the saved activity.
 
@@ -113,7 +113,7 @@ A named adult villager can be hired, shared, and commanded. The screen can save 
 - Hungry and hurt do not stop the saved activity.
 - An idle worker can still sleep, trade, pick up food, and breed. A baby from that breeding is not a worker.
 
-## M2 — Lumberjack and miner
+## M2 - Lumberjack and miner
 
 Workers with a saved area break only the blocks the safety rules allow, haul drops to linked chests, and work slower when they did not sleep. The builder still does not run.
 
@@ -177,7 +177,7 @@ Workers with a saved area break only the blocks the safety rules allow, haul dro
 - Wall blocks and saplings that are not in the linked chests pause the job with `OUT_OF_MATERIALS` and name the item.
 - Problem lines follow the once-per-minute limit and do not go to trusted players or to the public chat as a broadcast.
 
-## M3 — Builder
+## M3 - Builder
 
 The worker places a Create schematic. It still does not break blocks to do that.
 

@@ -102,6 +102,8 @@ public final class JobRunner {
         String stumpItem = "";
         List<BlockPos> walls = List.of();
         boolean wallsReady;
+        long rescanAt;
+        boolean leftWork;
     }
 
     private JobRunner() {}
@@ -112,6 +114,7 @@ public final class JobRunner {
         }
         Runtime runtime = RUNTIMES.computeIfAbsent(villager.getUUID(), id -> new Runtime());
         if (data.activity() == WorkerActivity.COMING) {
+            runtime.leftWork = true;
             returnTool(villager, data);
             come(villager, data, runtime);
             return;
@@ -129,22 +132,21 @@ public final class JobRunner {
             return;
         }
         if (data.activity() != WorkerActivity.WORKING) {
+            runtime.leftWork = true;
             release(villager, data, runtime);
             return;
         }
+        boolean resume = runtime.leftWork;
+        runtime.leftWork = false;
         String signature = signature(data);
         if (!signature.equals(runtime.signature)) {
             runtime.signature = signature;
-            runtime.phase = data.job() == WorkerJob.MINER ? Phase.LOGS : Phase.LOGS;
-            runtime.cursor = 0;
-            runtime.foundThisPass = false;
-            runtime.breaking = null;
-            runtime.progress = 0;
-            runtime.tree = List.of();
-            runtime.treeIndex = 0;
-            runtime.stump = null;
-            runtime.walls = List.of();
-            runtime.wallsReady = false;
+            restartPass(runtime);
+        } else if (resume) {
+            restartPass(runtime);
+        }
+        if (AssemblyGuards.shipGuardFailed()) {
+            OwnerNotices.report(villager, data, ProblemCode.SHIP_GUARD, "");
         }
         if (data.job() == WorkerJob.MINER && runtime.phase == Phase.LEAVES) {
             runtime.phase = Phase.LOGS;
@@ -174,6 +176,12 @@ public final class JobRunner {
         }
         if (runtime.phase == Phase.DONE) {
             release(villager, data, runtime);
+            long now = level.getGameTime();
+            if (runtime.rescanAt == 0L) {
+                runtime.rescanAt = now + ActionPace.RESCAN_TICKS;
+            } else if (now >= runtime.rescanAt) {
+                restartPass(runtime);
+            }
             return;
         }
         BlockPos next = nextTarget(level, villager, data, runtime);
@@ -324,6 +332,21 @@ public final class JobRunner {
             }
         }
         return null;
+    }
+
+    private static void restartPass(Runtime runtime) {
+        runtime.phase = Phase.LOGS;
+        runtime.cursor = 0;
+        runtime.foundThisPass = false;
+        runtime.breaking = null;
+        runtime.progress = 0;
+        runtime.tree = List.of();
+        runtime.treeIndex = 0;
+        runtime.stump = null;
+        runtime.stumpItem = "";
+        runtime.walls = List.of();
+        runtime.wallsReady = false;
+        runtime.rescanAt = 0L;
     }
 
     private static void advance(WorkerData data, Runtime runtime) {

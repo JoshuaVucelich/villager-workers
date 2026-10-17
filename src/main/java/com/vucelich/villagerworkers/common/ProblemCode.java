@@ -12,7 +12,8 @@ public enum ProblemCode {
     NO_ACCESS,
     CHEST_FULL,
     STUCK,
-    BLOCKED;
+    BLOCKED,
+    SHIP_GUARD;
 
     public String id() {
         return name().toLowerCase(Locale.ROOT);

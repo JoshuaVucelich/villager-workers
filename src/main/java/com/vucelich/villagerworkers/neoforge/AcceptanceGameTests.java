@@ -7,6 +7,7 @@ import com.simibubi.create.content.contraptions.bearing.BearingContraption;
 import com.simibubi.create.content.schematics.SchematicItem;
 import com.simibubi.create.content.schematics.cannon.SchematicannonBlockEntity;
 import com.simibubi.create.foundation.utility.CreatePaths;
+import com.vucelich.villagerworkers.common.ActionPace;
 import com.vucelich.villagerworkers.common.LumberjackConfig;
 import com.vucelich.villagerworkers.common.MinerConfig;
 import com.vucelich.villagerworkers.common.MinerMode;
@@ -497,8 +498,8 @@ public class AcceptanceGameTests {
         });
     }
 
-    @GameTest(template = "platform", timeoutTicks = 400)
-    public static void lumberjackCutsReplantsAndStops(GameTestHelper helper) {
+    @GameTest(template = "platform", timeoutTicks = 1600)
+    public static void lumberjackCutsReplantsAndContinues(GameTestHelper helper) {
         RecordingPlayer owner = player(helper);
         Villager villager = villager(helper, 2, 1, 3, "Birch");
         WorkerData data = hire(villager, owner);
@@ -538,11 +539,98 @@ public class AcceptanceGameTests {
         helper.succeedWhen(() -> {
             helper.assertTrue(planted[0], "sapling planted");
             helper.assertTrue(level.getGameTime() > readyAt[0] + 40L, "waited past a finished pass");
-            helper.assertTrue(level.getBlockState(later).is(Blocks.OAK_LOG), "finished pass leaves a later log");
+            helper.assertTrue(level.getBlockState(later).isAir(), "later log was cut");
             helper.assertTrue(level.getBlockState(outside).is(Blocks.OAK_LOG), "log outside the box");
             helper.assertTrue(level.getBlockState(leafIn).isAir(), "leaf inside");
             helper.assertTrue(level.getBlockState(leafOut).is(Blocks.OAK_LEAVES), "leaf outside");
-            helper.assertTrue(count(level, logs, Items.OAK_LOG) >= 1, "logs hauled");
+            helper.assertTrue(count(level, logs, Items.OAK_LOG) >= 2, "logs hauled");
+            cleanup(owner);
+        });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 1600)
+    public static void lumberjackCutsARegrownTree(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        Villager worker = villager(helper, 2, 1, 3, "Regrow");
+        ServerLevel level = helper.getLevel();
+        BlockPos stump = helper.absolutePos(new BlockPos(2, 1, 2));
+        level.setBlockAndUpdate(stump.below(), Blocks.DIRT.defaultBlockState());
+        level.setBlockAndUpdate(stump, Blocks.OAK_LOG.defaultBlockState());
+        BlockPos logs = barrel(helper, 1, 1, 2);
+        BlockPos saplings = barrel(helper, 1, 1, 3, new ItemStack(Items.OAK_SAPLING, 4));
+        BlockPos tools = barrel(helper, 1, 1, 4, new ItemStack(Items.DIAMOND_AXE));
+        WorkerData data = hire(worker, owner);
+        data.setJob(WorkerJob.LUMBERJACK);
+        data.setActivity(WorkerActivity.WORKING);
+        data.setRested(true);
+        data.setLastDawnDay(Long.MAX_VALUE);
+        data.setLumberjack(new LumberjackConfig(
+                Optional.of(area(level, stump, stump)),
+                false,
+                true,
+                Optional.of(logs),
+                Optional.of(saplings),
+                Optional.of(tools)));
+        boolean[] grew = {false};
+        boolean[] held = {false};
+        long[] seenSapling = {-1L};
+        long[] grewAt = {-1L};
+        helper.onEachTick(() -> {
+            if (!grew[0] && level.getBlockState(stump).is(Blocks.OAK_SAPLING)) {
+                if (seenSapling[0] < 0L) {
+                    seenSapling[0] = level.getGameTime();
+                }
+                if (level.getGameTime() >= seenSapling[0] + 40L) {
+                    grew[0] = true;
+                    grewAt[0] = level.getGameTime();
+                    level.setBlockAndUpdate(stump, Blocks.OAK_LOG.defaultBlockState());
+                    level.setBlockAndUpdate(stump.above(), Blocks.OAK_LOG.defaultBlockState());
+                }
+            }
+            if (grew[0] && !held[0] && level.getGameTime() >= grewAt[0] + 200L) {
+                held[0] = level.getBlockState(stump).is(Blocks.OAK_LOG);
+            }
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(grew[0], "tree regrew");
+            helper.assertTrue(held[0], "regrown log waited for the rescan");
+            helper.assertTrue(
+                    level.getBlockState(stump).isAir() || level.getBlockState(stump).is(Blocks.OAK_SAPLING),
+                    "regrown trunk was cut");
+            helper.assertTrue(level.getBlockState(stump.above()).is(Blocks.OAK_LOG), "log outside the box stays");
+            cleanup(owner);
+        });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 200)
+    public static void resumeStartsAnotherPass(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        Villager worker = villager(helper, 2, 1, 3, "Resume");
+        WorkerData data = minerAt(helper, worker, owner, new BlockPos(2, 1, 2), true);
+        ServerLevel level = helper.getLevel();
+        BlockPos stone = helper.absolutePos(new BlockPos(2, 1, 2));
+        boolean[] stopped = {false};
+        boolean[] resumed = {false};
+        long[] stoppedAt = {-1L};
+        long[] resumedAt = {-1L};
+        helper.onEachTick(() -> {
+            if (!stopped[0] && level.getBlockState(stone).isAir()) {
+                stopped[0] = true;
+                level.setBlockAndUpdate(stone, Blocks.STONE.defaultBlockState());
+                data.setActivity(WorkerActivity.STOPPED);
+                stoppedAt[0] = level.getGameTime();
+                return;
+            }
+            if (stopped[0] && !resumed[0] && level.getGameTime() >= stoppedAt[0] + 2L) {
+                resumed[0] = true;
+                resumedAt[0] = level.getGameTime();
+                data.setActivity(WorkerActivity.WORKING);
+            }
+        });
+        helper.succeedWhen(() -> {
+            helper.assertTrue(resumed[0], "resumed");
+            helper.assertTrue(level.getBlockState(stone).isAir(), "new stone was mined");
+            helper.assertTrue(level.getGameTime() < resumedAt[0] + ActionPace.RESCAN_TICKS, "resume did not wait out the rescan");
             cleanup(owner);
         });
     }

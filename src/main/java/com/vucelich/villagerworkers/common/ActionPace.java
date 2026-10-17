@@ -11,6 +11,8 @@ public final class ActionPace {
     public static final double COME_DISTANCE = 2.0;
     public static final double COME_DISTANCE_SQR = COME_DISTANCE * COME_DISTANCE;
     public static final int STUCK_TICKS = 200;
+    /** Finished lumberjack and miner volumes are scanned again after this many ticks (40 seconds). */
+    public static final int RESCAN_TICKS = 800;
 
     private ActionPace() {}
 

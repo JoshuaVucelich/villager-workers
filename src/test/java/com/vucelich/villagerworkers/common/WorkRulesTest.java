@@ -142,6 +142,7 @@ class WorkRulesTest {
         WorkerProblem locked = new WorkerProblem(ProblemCode.NO_ACCESS, "");
         assertEquals("cannot open a container", StatusText.problem(false, false, locked));
         assertEquals("[Birch] cannot open that container.", StatusText.ownerAlert("Birch", ProblemCode.NO_ACCESS, ""));
+        assertEquals("[Birch] will not dig because the ship check failed.", StatusText.ownerAlert("Birch", ProblemCode.SHIP_GUARD, ""));
     }
 
     @Test
