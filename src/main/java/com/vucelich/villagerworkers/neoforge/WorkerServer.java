@@ -123,7 +123,7 @@ public final class WorkerServer {
         if (!(player.level() instanceof ServerLevel level)) {
             return;
         }
-        List<Villager> workers = loadedWorkers(level, player);
+        List<Villager> workers = loadedWorkers(level);
         List<String> names = new ArrayList<>(workers.size());
         for (Villager villager : workers) {
             names.add(displayName(villager));
@@ -512,7 +512,7 @@ public final class WorkerServer {
     }
 
     /** Chat works at any distance while the worker is loaded in the sender's dimension. */
-    private static List<Villager> loadedWorkers(ServerLevel level, ServerPlayer player) {
+    private static List<Villager> loadedWorkers(ServerLevel level) {
         List<Villager> workers = new ArrayList<>();
         level.getEntities().get(net.minecraft.world.entity.EntityType.VILLAGER, villager -> {
             if (WorkerAttachments.isWorker(villager)) {

@@ -97,7 +97,7 @@ The filter matches dropped items, not the ore block. Ancient debris drops itself
 Breaking is allowed only inside the volume for the selected job and mode. The volume is always in the worker's current dimension.
 
 - **Clear box.** The inclusive box from the area wand's two corners. Mine from the highest `y` downward.
-- **Tunnel.** One wand click sets the start block. Facing is the horizontal direction the player was looking. `width` is an odd integer from 1 to 7 (default 3). `height` is an integer from 2 to 5 (default 3). `length` is an integer from 1 to 128 (default 16). The dug volume is that corridor. When `wallBlock` is set, the worker may also place that block on the left, right, and ceiling, taking the item from the regular chest. The floor is not filled. Placement never replaces a block the break rules would refuse to remove.
+- **Tunnel.** One wand click sets the start block. Facing is the horizontal direction the player was looking. `width` is an odd integer from 1 to 7 (default 3). `height` is an integer from 2 to 5 (default 3). `length` is an integer from 1 to 128 (default 16). The dug volume is that corridor. When `wallBlock` is set, the worker may also place that block on the left, right, and ceiling, taking the item from the regular chest. The floor is not filled. Placement never replaces a block the break rules would refuse to remove. It also refuses a position on a ship plot or a Create contraption, and it refuses a position the worker cannot reach.
 - **Branch.** The tunnel corridor, plus left and right branches of `branchLength` (1 to 64, default 8) every `branchSpacing` blocks (2 to 16, default 4). Branches use the same width and height. No branch is cut in the first spacing interval, so the entrance stays a single corridor. The volume is the union of those corridors.
 - **Shaft.** One start block, square `shaftWidth` from 1 to 5 (default 2), `shaftDepth` from 1 to 64 (default 16), downward unless `shaftUp` is set. No wall fill.
 - **Lumberjack.** The clear-box volume only.
@@ -143,7 +143,7 @@ The client hides the permissions tab from trusted players. That is not the secur
 
 A trusted player acts with the owner's claim rights. Starting a job, marking an area, or telling the worker to come does not lend the trusted player's claims to that worker. Breaking a block, placing a block, and opening a linked container are checked as the owner: spawn protection, the world border, claim mods, and container locks all see the owner. If the owner is offline, the worker waits instead of skipping those checks. The click that links a chest or schematicannon is the clicking player's own interaction. That click is refused when another mod already cancelled it, when that player may not interact with the position, or when a lockable container does not open for them. Hauling later checks the owner again.
 
-Other players keep the vanilla villager interaction, including trading. Owner and trusted players open the worker screen on right-click. Sneak-right-click keeps the vanilla interaction so trading still works. GUI and mutation packets are rejected if the player is more than 6 blocks from the villager or the worker menu is not open. Chat commands run only when the line starts with `@`, the worker is loaded in the same dimension, and the worker is within 128 blocks of the sender.
+Other players keep the vanilla villager interaction, including trading. Owner and trusted players open the worker screen on right-click. Sneak-right-click keeps the vanilla interaction so trading still works. GUI and mutation packets are rejected if the player is more than 6 blocks from the villager or the worker menu is not open. Chat commands run only when the line starts with `@` and the worker is loaded in the sender's dimension. Distance does not matter.
 
 ## Networking
 
@@ -228,7 +228,7 @@ A command is a chat line whose first character is `@`. The rest is `Name`, then 
 Parsing:
 
 1. If the line does not start with `@`, ignore it.
-2. Among loaded workers within 128 blocks of the sender, in the sender's dimension, keep those whose custom name is a prefix of the text after `@`, with a name boundary (end of line or whitespace) after the name.
+2. Among loaded workers in the sender's dimension, keep those whose custom name is a prefix of the text after `@`, with a name boundary (end of line or whitespace) after the name. Distance does not matter.
 3. If none match, ignore the line. It is ordinary chat.
 4. Keep the longest matching name. If two workers tie, reply `More than one worker is named <name>.` and run nothing.
 5. The trailing verb must be one of the four. Anything else gets `Unknown command. Use come, stop, resume, or status.` when the sender may command that worker.
@@ -288,11 +288,11 @@ The worker honors the `doTileDrops` game rule for the block item. When it is off
 
 Tools come from the tool chest: an axe for the lumberjack, a pickaxe for the miner. The worker equips one, and vanilla durability applies. At 1 remaining durability the worker stops, returns the tool if it can, and messages the owner. On death the equipped tool drops with the villager. On stop or idle the tool is put back in the tool chest when that chest has room.
 
-Replanting places one matching sapling on a dirt-like block inside the lumberjack box after that trunk's logs are gone. It does not place outside the box, and it does not replace a non-dirt block. The sapling is taken from the sapling chest. While the worker is still working, a finished lumberjack or miner pass starts again, so a log or ore that appears later in the volume is still taken.
+Replanting places one matching sapling on a dirt-like block inside the lumberjack box after that trunk's logs are gone. It does not place outside the box, and it does not replace a non-dirt block. The sapling is taken from the sapling chest. A finished lumberjack or miner pass stays finished until the job setup changes. A log or ore that appears after that pass is left until the owner changes the job.
 
 ## Builder
 
-Create is an optional runtime dependency, declared in M3 as `create` `[6.0,6.1)`. The mod loads without it. Starting the builder job without Create is rejected with a problem line the owner can see.
+Create is an optional runtime dependency, declared as `create` `[6.0,)`. The mod loads without it. Starting the builder job without Create is rejected with a problem line the owner can see.
 
 The player places a Create schematicannon and loads a schematic into it, then links that block from the builder setup. The worker reads the schematic. It does not turn the cannon on and does not spend the cannon's fuel.
 
