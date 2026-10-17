@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.vucelich.villagerworkers.common.ActionPace;
 import com.vucelich.villagerworkers.common.ProblemCode;
-import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import net.minecraft.core.BlockPos;
@@ -49,55 +48,60 @@ class AssemblyGuardsTest {
                 lookup.findStatic(AssemblyGuardsTest.class, "sub", MethodType.methodType(Object.class, Object.class)));
 
         mode = Mode.THROW;
-        assertTrue(AssemblyGuards.probeForTest(0L, POS, true), "failed lookup is occupied");
+        assertTrue(AssemblyGuards.probeForTest(0L, POS), "failed lookup is occupied");
         assertTrue(AssemblyGuards.shipGuardFailed(), "guard fails closed");
         assertEquals(1, AssemblyGuards.shipFailureLogs, "first failure logs");
-        assertTrue(AssemblyGuards.probeForTest(1L, POS, true));
+        assertTrue(AssemblyGuards.probeForTest(1L, POS));
         assertEquals(1, AssemblyGuards.shipFailureLogs, "cooldown does not log again");
+        ProblemCode notice = ProblemCode.SHIP_GUARD;
 
-        ProblemCode notice = noticeAfter(0L);
         mode = Mode.OUT_OF_BOUNDS;
-        assertFalse(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS, POS, true));
+        assertFalse(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS, POS));
+        assertFalse(AssemblyGuards.shipGuardFailed(), "a returned lookup clears the digging block");
         notice = noticeAfter(notice);
+        assertEquals(ProblemCode.NONE, notice, "the notice clears with the digging block");
+        assertEquals(1, AssemblyGuards.shipFailureLogs, "a partial return keeps the log quiet");
+
+        mode = Mode.THROW;
+        assertTrue(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS, POS));
+        assertEquals(1, AssemblyGuards.shipFailureLogs, "the next failure stays quiet");
+        notice = noticeAfter(notice);
+        assertEquals(ProblemCode.SHIP_GUARD, notice);
+
         mode = Mode.NULL_CONTAINER;
-        assertFalse(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS, POS, true));
-        notice = noticeAfter(notice);
+        AssemblyGuards.pollForTest(ActionPace.SHIP_RETRY_TICKS * 2L);
+        assertFalse(AssemblyGuards.shipGuardFailed(), "poll clears a lookup that returns");
+        assertEquals(ProblemCode.NONE, noticeAfter(notice));
+        assertEquals(1, AssemblyGuards.shipFailureLogs);
+
+        mode = Mode.THROW;
+        assertTrue(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS * 2L, POS));
+        assertEquals(1, AssemblyGuards.shipFailureLogs);
+
         mode = Mode.NO_PLOT;
-        assertFalse(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS, POS, true));
-        notice = noticeAfter(notice);
+        assertFalse(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS * 3L, POS));
+        assertFalse(AssemblyGuards.shipGuardFailed());
+
+        mode = Mode.THROW;
+        assertTrue(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS * 3L, POS));
+        assertEquals(1, AssemblyGuards.shipFailureLogs);
+
         mode = Mode.THROW_SUB;
-        assertTrue(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS, POS, true));
-        notice = noticeAfter(notice);
-        assertEquals(1, AssemblyGuards.shipFailureLogs, "sublevel failure is a quiet retry");
+        assertTrue(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS * 4L, POS));
+        assertTrue(AssemblyGuards.shipGuardFailed());
+        assertEquals(1, AssemblyGuards.shipFailureLogs, "a thrown sublevel is a quiet retry");
 
         mode = Mode.OK;
-        long afterRetry = ActionPace.SHIP_RETRY_TICKS * 2L;
-        AssemblyGuards.pollForTest(afterRetry);
-        notice = noticeAfter(notice);
-        assertTrue(AssemblyGuards.shipGuardFailed(), "poll does not clear the failure");
-        assertEquals(ProblemCode.SHIP_GUARD, notice, "notice stays steady");
+        AssemblyGuards.pollForTest(ActionPace.SHIP_RETRY_TICKS * 5L);
+        assertFalse(AssemblyGuards.shipGuardFailed(), "a full poll clears the digging block");
 
         mode = Mode.THROW;
-        assertTrue(AssemblyGuards.probeForTest(afterRetry, POS, true));
-        assertEquals(1, AssemblyGuards.shipFailureLogs, "another retry stays quiet");
-        assertEquals(ProblemCode.SHIP_GUARD, noticeAfter(notice));
-
-        mode = Mode.OK;
-        long recoveredAt = ActionPace.SHIP_RETRY_TICKS * 3L;
-        assertTrue(AssemblyGuards.probeForTest(recoveredAt, POS, true), "plot and sublevel both returned");
-        assertFalse(AssemblyGuards.shipGuardFailed(), "full lookup clears the failure");
-
-        mode = Mode.THROW;
-        assertTrue(AssemblyGuards.probeForTest(recoveredAt, POS, true));
-        assertEquals(2, AssemblyGuards.shipFailureLogs);
+        assertTrue(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS * 5L, POS));
+        assertEquals(2, AssemblyGuards.shipFailureLogs, "a full success allows another log");
         AssemblyGuards.onServerStopped(null);
         assertFalse(AssemblyGuards.shipGuardFailed(), "server stop clears the failure");
-        assertTrue(AssemblyGuards.probeForTest(0L, POS, true));
-        assertEquals(3, AssemblyGuards.shipFailureLogs, "the next run can log again");
-    }
-
-    private static ProblemCode noticeAfter(long ignored) {
-        return noticeAfter(ProblemCode.NONE);
+        assertTrue(AssemblyGuards.probeForTest(0L, POS));
+        assertEquals(3, AssemblyGuards.shipFailureLogs, "server stop allows another log");
     }
 
     private static ProblemCode noticeAfter(ProblemCode current) {

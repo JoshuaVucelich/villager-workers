@@ -51,8 +51,7 @@ final class AssemblyGuards {
         if (level == null || !shipLookupFailed || level.getGameTime() < shipRetryAt) {
             return;
         }
-        // The origin probe is not a recovered lookup, so it must not clear the failure.
-        lookupShip(level, BlockPos.ZERO, level.getGameTime(), false);
+        lookupShip(level, BlockPos.ZERO, level.getGameTime());
     }
 
     static void onServerStopped(ServerStoppedEvent event) {
@@ -98,16 +97,16 @@ final class AssemblyGuards {
         cacheLevel = new WeakReference<>(null);
     }
 
-    /** Test-only lookup. {@code recover} is false for the origin poll. */
-    static boolean probeForTest(long now, BlockPos pos, boolean recover) {
-        return lookupShip(null, pos, now, recover);
+    /** Test-only lookup. A return that does not throw clears the digging block. */
+    static boolean probeForTest(long now, BlockPos pos) {
+        return lookupShip(null, pos, now);
     }
 
     static void pollForTest(long now) {
         if (!shipLookupFailed || now < shipRetryAt) {
             return;
         }
-        lookupShip(null, BlockPos.ZERO, now, false);
+        lookupShip(null, BlockPos.ZERO, now);
     }
 
     static boolean occupied(ServerLevel level, BlockPos pos) {
@@ -138,14 +137,14 @@ final class AssemblyGuards {
         if (!sableLoaded()) {
             return false;
         }
-        return lookupShip(level, pos, level.getGameTime(), true);
+        return lookupShip(level, pos, level.getGameTime());
     }
 
     /**
-     * {@code recover} clears the failure only after both the plot and its sublevel have returned.
-     * A null container, an out-of-bounds block, a null plot, or a poll that does not ask to recover leaves the flag.
+     * A lookup that returns clears the digging block, so one failed try does not last until restart.
+     * The warning flag clears only when both the plot and its sublevel return, or when the server stops.
      */
-    private static boolean lookupShip(ServerLevel level, BlockPos pos, long now, boolean recover) {
+    private static boolean lookupShip(ServerLevel level, BlockPos pos, long now) {
         if (!sableLoaded()) {
             return false;
         }
@@ -162,20 +161,21 @@ final class AssemblyGuards {
             }
             Object container = shipContainer.invoke(level);
             if (container == null) {
+                shipLookupFailed = false;
                 return false;
             }
             if (!((boolean) shipInBounds.invoke(container, pos))) {
+                shipLookupFailed = false;
                 return false;
             }
             Object plot = shipPlot.invoke(container, new ChunkPos(pos));
             if (plot == null) {
+                shipLookupFailed = false;
                 return false;
             }
             Object subLevel = shipSubLevel.invoke(plot);
-            if (recover) {
-                shipLookupFailed = false;
-                shipFailureLogged = false;
-            }
+            shipLookupFailed = false;
+            shipFailureLogged = false;
             return subLevel != null;
         } catch (Throwable exception) {
             failShip(exception, now);

@@ -478,22 +478,33 @@ public class AcceptanceGameTests {
 
         ServerLevel level = helper.getLevel();
         BlockPos farPos = helper.absolutePos(new BlockPos(144, 1, 0));
-        level.setChunkForced(farPos.getX() >> 4, farPos.getZ() >> 4, true);
-        helper.runAfterDelay(40, () -> {
-            helper.assertTrue(level.isPositionEntityTicking(farPos), "far chunk is ticking");
-            Villager far = EntityType.VILLAGER.create(level);
-            far.setCustomName(Component.literal("Farmer"));
-            far.setPersistenceRequired();
-            far.setNoAi(true);
-            far.setNoGravity(true);
-            far.setPos(farPos.getX() + 0.5, farPos.getY(), farPos.getZ() + 0.5);
-            boolean added = level.addFreshEntity(far);
-            WorkerData farData = hire(far, owner);
-            farData.setActivity(WorkerActivity.WORKING);
-            helper.assertTrue(added && level.getEntity(far.getUUID()) == far, "far worker is loaded");
-            helper.assertTrue(far.distanceToSqr(owner) > 128.0 * 128.0, "loaded worker is farther than 128 blocks");
-            WorkerServer.onChat(chat(owner, "@Farmer stop"));
-            helper.assertTrue(farData.activity() == WorkerActivity.STOPPED, "chat reaches a loaded worker across the dimension");
+        int chunkX = farPos.getX() >> 4;
+        int chunkZ = farPos.getZ() >> 4;
+        level.setChunkForced(chunkX, chunkZ, true);
+        level.getChunk(chunkX, chunkZ);
+        boolean[] finished = {false};
+        helper.onEachTick(() -> {
+            if (finished[0] || !level.isPositionEntityTicking(farPos)) {
+                return;
+            }
+            finished[0] = true;
+            try {
+                Villager far = EntityType.VILLAGER.create(level);
+                far.setCustomName(Component.literal("Farmer"));
+                far.setPersistenceRequired();
+                far.setNoAi(true);
+                far.setNoGravity(true);
+                far.setPos(farPos.getX() + 0.5, farPos.getY(), farPos.getZ() + 0.5);
+                boolean added = level.addFreshEntity(far);
+                WorkerData farData = hire(far, owner);
+                farData.setActivity(WorkerActivity.WORKING);
+                helper.assertTrue(added && level.getEntity(far.getUUID()) == far, "far worker is loaded");
+                helper.assertTrue(far.distanceToSqr(owner) > 128.0 * 128.0, "loaded worker is farther than 128 blocks");
+                WorkerServer.onChat(chat(owner, "@Farmer stop"));
+                helper.assertTrue(farData.activity() == WorkerActivity.STOPPED, "chat reaches a loaded worker across the dimension");
+            } finally {
+                level.setChunkForced(chunkX, chunkZ, false);
+            }
             done(helper, owner, stranger);
         });
     }

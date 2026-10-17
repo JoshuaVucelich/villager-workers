@@ -260,7 +260,7 @@ Problems are sent as a system chat line to the owner only, and only if the owner
 | `CHEST_FULL` | The destination chest cannot take the drops. Drops stay on the ground at the worker, and work pauses. M2 |
 | `STUCK` | The worker has a target and has not moved for 10 seconds. Retry the path once. If still stuck, pause. M2 |
 | `BLOCKED` | Builder found a solid block that does not match the schematic. Skip that position. M3 |
-| `SHIP_GUARD` | Sable is loaded, but the ship lookup failed. Every block is treated as occupied, and the owner is told once. The lookup is tried again after 600 ticks (30 seconds). A later problem can replace this one. |
+| `SHIP_GUARD` | Sable is loaded, but the ship lookup failed. Every block is treated as occupied, and the owner is told once. The lookup is tried again after 600 ticks (30 seconds). A lookup that returns clears that block and the notice, so digging can resume. The warning stays quiet until a plot and its sublevel both return, or the server stops. |
 
 `HUNGRY` and `HURT` can both be true. Send each under its own rate limit. Work does not stop for hungry or hurt. Work does pause for a missing tool, a missing or full chest, no materials, or stuck.
 
