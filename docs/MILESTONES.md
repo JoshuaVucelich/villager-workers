@@ -185,7 +185,7 @@ The worker places a Create schematic. It still does not break blocks to do that.
 
 **Title:** Link a placed Create schematic
 
-**Scope:** Add an optional dependency on Create `[6.0,6.1)`. The mod still loads when Create is absent. From builder setup, link a placed schematicannon that already has a schematic. Spike the Create 6.0 schematic API before writing the adapter, and keep Create calls out of `common`.
+**Scope:** Add an optional dependency on Create `[6.0,)`. The mod still loads when Create is absent. From builder setup, link a placed schematicannon that already has a schematic. Spike the Create 6.0 schematic API before writing the adapter, and keep Create calls out of `common`.
 
 **Acceptance criteria:**
 
