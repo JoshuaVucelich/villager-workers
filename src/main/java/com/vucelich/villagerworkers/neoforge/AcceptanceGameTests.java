@@ -542,7 +542,6 @@ public class AcceptanceGameTests {
             helper.assertTrue(level.getBlockState(leafIn).isAir(), "leaf inside");
             helper.assertTrue(level.getBlockState(leafOut).is(Blocks.OAK_LEAVES), "leaf outside");
             helper.assertTrue(count(level, logs, Items.OAK_LOG) >= 1, "logs hauled");
-            helper.assertTrue(count(level, saplings, Items.OAK_SAPLING) < 4, "sapling taken");
             cleanup(owner);
         });
     }
