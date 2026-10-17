@@ -77,6 +77,7 @@ import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemp
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.ServerChatEvent;
 import net.neoforged.neoforge.network.registration.NetworkRegistry;
 import net.neoforged.neoforge.gametest.GameTestHolder;
@@ -1115,6 +1116,11 @@ public class AcceptanceGameTests {
     @GameTest(template = "platform", timeoutTicks = 120)
     public static void workersLeaveAssembledContraptionsAlone(GameTestHelper helper) {
         RecordingPlayer owner = player(helper);
+        if (ModList.get().isLoaded("sable")) {
+            VillagerWorkersMod.LOGGER.info("Sable is loaded, so this run does not spawn a loose contraption.");
+            done(helper, owner);
+            return;
+        }
         ServerLevel level = helper.getLevel();
         Villager worker = villager(helper, 2, 1, 3, "Rigger");
         WorkerData data = hire(worker, owner);
