@@ -141,6 +141,7 @@ public final class WorkerServer {
     public static void onLeaveLevel(EntityLeaveLevelEvent event) {
         if (event.getEntity() instanceof Villager villager && WorkerAttachments.isWorker(villager)) {
             WorkerHold.forget(villager.getUUID());
+            JobRunner.onDiscarded(villager);
         }
     }
 

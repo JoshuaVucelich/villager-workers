@@ -74,6 +74,8 @@ import net.minecraft.world.entity.ai.behavior.EntityTracker;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.Zombie;
+import net.minecraft.world.entity.monster.ZombieVillager;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
@@ -1676,8 +1678,16 @@ public class AcceptanceGameTests {
         JobRunner.tick(villager, data);
         ItemStack hand = villager.getMainHandItem();
         helper.assertTrue(hand.is(Items.DIAMOND_PICKAXE) && hand.getDamageValue() == 0, "fresh pickaxe is in the hand");
-        ItemStack kept = data.carry(WorkerData.TOOL_SLOT);
-        helper.assertTrue(kept.is(Items.DIAMOND_PICKAXE) && kept.getDamageValue() == wornDamage, "worn pickaxe is in the tool slot");
+        helper.assertTrue(data.carry(WorkerData.TOOL_SLOT).isEmpty(), "worn pickaxe is not left in the tool slot");
+        int wornInChest = 0;
+        Container chest = (Container) level.getBlockEntity(tools);
+        for (int slot = 0; slot < chest.getContainerSize(); slot++) {
+            ItemStack stack = chest.getItem(slot);
+            if (stack.is(Items.DIAMOND_PICKAXE) && stack.getDamageValue() == wornDamage) {
+                wornInChest += stack.getCount();
+            }
+        }
+        helper.assertTrue(wornInChest == 1, "worn pickaxe is in the tool chest");
         helper.assertTrue(toolCount(level, villager, data, tools, Items.DIAMOND_PICKAXE) == 2, "both pickaxes still exist");
         done(helper, owner);
     }
@@ -1704,25 +1714,46 @@ public class AcceptanceGameTests {
         level.getServer().setDifficulty(previous, false);
         helper.assertTrue(villager.isRemoved(), "villager converted");
         helper.assertFalse(WorkerHold.watching(villager.getUUID()), "conversion clears the hold");
-        boolean emerald = false;
-        boolean pick = false;
-        boolean axe = false;
         for (ItemEntity item : itemsNear(level, where, 8)) {
             CompoundTag tag = item.saveWithoutId(new CompoundTag());
             helper.assertFalse(tag.toString().contains("villager_workers:worker"), "drop has worker data");
-            if (item.getItem().is(Items.EMERALD)) {
-                emerald = true;
-            }
-            if (item.getItem().is(Items.DIAMOND_PICKAXE)) {
-                pick = true;
-            }
-            if (item.getItem().is(Items.DIAMOND_AXE)) {
-                axe = true;
-            }
         }
-        helper.assertTrue(emerald, "carried emerald dropped");
-        helper.assertTrue(pick, "tool slot dropped");
-        helper.assertTrue(axe, "held axe dropped");
+        assertDroppedOnce(helper, level, where, Items.EMERALD, "carried emerald");
+        assertDroppedOnce(helper, level, where, Items.DIAMOND_PICKAXE, "tool slot");
+        assertDroppedOnce(helper, level, where, Items.DIAMOND_AXE, "held axe");
+        done(helper, owner);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void zombieConversionDropsEachItemOnce(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        ServerLevel level = helper.getLevel();
+        Villager villager = villager(helper, 2, 1, 2, "Bitten");
+        WorkerData carried = hire(villager, owner);
+        carried.setCarry(0, new ItemStack(Items.EMERALD));
+        carried.setCarry(WorkerData.TOOL_SLOT, new ItemStack(Items.DIAMOND_PICKAXE));
+        villager.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.DIAMOND_AXE));
+        BlockPos where = villager.blockPosition();
+        Zombie zombie = helper.spawn(EntityType.ZOMBIE, 3, 1, 2);
+        zombie.setNoAi(true);
+        Difficulty previous = level.getDifficulty();
+        level.getServer().setDifficulty(Difficulty.HARD, false);
+        try {
+            villager.hurt(level.damageSources().mobAttack(zombie), 40.0F);
+        } finally {
+            level.getServer().setDifficulty(previous, false);
+        }
+        helper.assertTrue(villager.isRemoved(), "villager converted");
+        helper.assertTrue(villager.getRemovalReason() == net.minecraft.world.entity.Entity.RemovalReason.DISCARDED, "conversion discards the villager");
+        List<ZombieVillager> converted = level.getEntitiesOfClass(ZombieVillager.class, new net.minecraft.world.phys.AABB(where).inflate(4.0));
+        helper.assertTrue(converted.size() == 1, "one zombie villager");
+        for (ItemEntity item : itemsNear(level, where, 8)) {
+            CompoundTag tag = item.saveWithoutId(new CompoundTag());
+            helper.assertFalse(tag.toString().contains("villager_workers:worker"), "drop has worker data");
+        }
+        assertDroppedOnce(helper, level, where, Items.EMERALD, "carried emerald");
+        assertDroppedOnce(helper, level, where, Items.DIAMOND_PICKAXE, "tool slot");
+        assertDroppedOnce(helper, level, where, Items.DIAMOND_AXE, "held axe");
         done(helper, owner);
     }
 
@@ -1833,6 +1864,16 @@ public class AcceptanceGameTests {
         tag.putString("id", id);
         tag.putInt("count", count);
         return tag;
+    }
+
+    private static void assertDroppedOnce(GameTestHelper helper, ServerLevel level, BlockPos where, Item item, String label) {
+        int total = 0;
+        for (ItemEntity entity : itemsNear(level, where, 8)) {
+            if (entity.getItem().is(item)) {
+                total += entity.getItem().getCount();
+            }
+        }
+        helper.assertTrue(total == 1, label + " dropped once, found " + total);
     }
 
     private static int toolCount(ServerLevel level, Villager villager, WorkerData data, BlockPos chest, Item item) {

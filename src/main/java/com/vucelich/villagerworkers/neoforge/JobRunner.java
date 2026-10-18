@@ -30,6 +30,7 @@ import net.minecraft.tags.ItemTags;
 import net.minecraft.world.Container;
 import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.npc.Villager;
@@ -250,12 +251,32 @@ public final class JobRunner {
         dropCarried(villager, event.getDrops());
     }
 
-    /** Lightning witches and zombie villagers replace the worker. Death drops do not run, so the carry is dropped here. */
+    /** Lightning witches and zombie villagers replace the worker. The carry is dropped here when the conversion event still sees it. */
     public static void onConvert(net.neoforged.neoforge.event.entity.living.LivingConversionEvent.Post event) {
         if (!(event.getEntity() instanceof Villager villager) || !WorkerAttachments.isWorker(villager)) {
             return;
         }
         forgetRuntime(villager);
+        dropCarried(villager, null);
+    }
+
+    /**
+     * A zombie conversion discards the villager before the conversion event, and other mods can discard one too.
+     * Death uses {@link net.minecraft.world.entity.Entity.RemovalReason#KILLED} and unloads do not use this reason.
+     * Items are spawned only while the server is running and the chunk is loaded, so a shutdown or an unloaded chunk
+     * does not create an entity the level will not keep. Slots are cleared, so a later conversion drop does not repeat them.
+     */
+    public static void onDiscarded(Villager villager) {
+        if (villager.getRemovalReason() != Entity.RemovalReason.DISCARDED) {
+            return;
+        }
+        forgetRuntime(villager);
+        if (!(villager.level() instanceof ServerLevel level) || level.getServer() == null || !level.getServer().isRunning()) {
+            return;
+        }
+        if (!level.isLoaded(villager.blockPosition())) {
+            return;
+        }
         dropCarried(villager, null);
     }
 
@@ -904,7 +925,12 @@ public final class JobRunner {
         if (stack.isEmpty()) {
             return;
         }
-        if (isTool(stack) && data.carry(WorkerData.TOOL_SLOT).isEmpty()) {
+        if (isTool(stack) && !usable(stack)) {
+            stack = insertToolChest(villager, data, stack);
+            if (stack.isEmpty()) {
+                return;
+            }
+        } else if (isTool(stack) && data.carry(WorkerData.TOOL_SLOT).isEmpty()) {
             data.setCarry(WorkerData.TOOL_SLOT, stack);
             return;
         }
@@ -924,6 +950,21 @@ public final class JobRunner {
         if (!left.isEmpty()) {
             spawn(villager, left);
         }
+    }
+
+    /** Puts a worn tool in the tool chest. Returns whatever did not fit. */
+    private static ItemStack insertToolChest(Villager villager, WorkerData data, ItemStack stack) {
+        if (!(villager.level() instanceof ServerLevel level)) {
+            return stack;
+        }
+        BlockPos chestPos = data.job() == WorkerJob.MINER
+                ? data.miner().toolChest().orElse(data.lumberjack().toolChest().orElse(null))
+                : data.lumberjack().toolChest().orElse(data.miner().toolChest().orElse(null));
+        Container chest = openLinked(level, villager, data, chestPos);
+        if (chest == null) {
+            return stack;
+        }
+        return ContainerAccess.insert(chest, stack);
     }
 
     private static boolean jobTool(boolean lumber, ItemStack stack) {

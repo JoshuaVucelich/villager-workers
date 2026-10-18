@@ -2,6 +2,7 @@ package com.vucelich.villagerworkers.neoforge;
 
 import com.mojang.logging.LogUtils;
 import com.vucelich.villagerworkers.common.VillagerWorkers;
+import com.vucelich.villagerworkers.common.WorkerData;
 import com.vucelich.villagerworkers.neoforge.client.ClientModEvents;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.api.distmarker.Dist;
@@ -36,6 +37,8 @@ public final class VillagerWorkersMod {
         NeoForge.EVENT_BUS.addListener(WorkerServer::onChat);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onLogout);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onLeaveLevel);
+        WorkerData.setCarryDecodeWarning(detail ->
+                LOGGER.warn("Could not decode a carry item for a worker; that slot was cleared: {}", detail));
         NeoForge.EVENT_BUS.addListener(JobRunner::onDeath);
         NeoForge.EVENT_BUS.addListener(JobRunner::onConvert);
         NeoForge.EVENT_BUS.addListener(AssemblyGuards::onServerStopped);

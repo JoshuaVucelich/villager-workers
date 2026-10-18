@@ -94,7 +94,7 @@ A new miner config starts with these item ids, and the owner can edit the list:
 
 The filter matches dropped items, not the ore block. Ancient debris drops itself, so it is listed as the item. The worker screen offers checkboxes for those drops, the vanilla ores, and any block in the `c:ores` tag. Nothing on that list is typed.
 
-Mined and chopped drops go into the 27 carry slots, then into the linked chest that matches the drop. Whatever does not fit in the chest stays in the carry slots, and a full chest pauses the worker. A full carry drops the overflow on the ground. The tool slot is an axe or a pickaxe and is used before the tool chest. On death the carry slots, the tool slot, and a tool in the hand are dropped. The player can put items in and take them out from the menu.
+Mined and chopped drops go into the 27 carry slots, then into the linked chest that matches the drop. Whatever does not fit in the chest stays in the carry slots, and a full chest pauses the worker. A full carry drops the overflow on the ground. The tool slot is an axe or a pickaxe and is used before the tool chest. A worn tool is put back in the tool chest, and the tool slot stays free for a usable one. On death, on a lightning or zombie conversion, and when the villager is discarded from a loaded chunk, the carry slots, the tool slot, and the held item are dropped once. The player can put items in and take them out from the menu.
 
 ### Work volumes
 

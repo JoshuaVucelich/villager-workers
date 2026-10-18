@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
@@ -25,6 +26,9 @@ import net.minecraft.world.item.ItemStack;
  * There is no default instance: reading a missing attachment must not hire the villager.
  */
 public final class WorkerData {
+    /** The loader points this at its logger. Unit tests leave it empty. */
+    private static Consumer<String> carryDecodeWarning = detail -> {};
+
     /**
      * Reads {@code carry} only when the key is present, so unit tests can load a 0.4.6 save
      * without bootstrapping the item registry. An empty inventory is omitted on write.
@@ -56,8 +60,16 @@ public final class WorkerData {
                 stream.forEach(element -> {
                     ItemStack stack;
                     try {
-                        stack = ItemStack.OPTIONAL_CODEC.parse(ops, element).result().orElse(ItemStack.EMPTY);
+                        DataResult<ItemStack> one = ItemStack.OPTIONAL_CODEC.parse(ops, element);
+                        Optional<ItemStack> decoded = one.result();
+                        if (decoded.isEmpty()) {
+                            warnCarry(one.error().map(DataResult.Error::message).orElse("unknown item"));
+                            stack = ItemStack.EMPTY;
+                        } else {
+                            stack = decoded.get();
+                        }
                     } catch (RuntimeException ex) {
+                        warnCarry(ex.getMessage() == null ? ex.toString() : ex.getMessage());
                         stack = ItemStack.EMPTY;
                     }
                     stacks.add(stack);
@@ -126,6 +138,15 @@ public final class WorkerData {
     private BlockPos pendingBed;
 
     private WorkerData() {}
+
+    /** Logs one warning per carry slot that cannot be decoded, without failing the rest of the save. */
+    public static void setCarryDecodeWarning(Consumer<String> warning) {
+        carryDecodeWarning = warning == null ? detail -> {} : warning;
+    }
+
+    private static void warnCarry(String detail) {
+        carryDecodeWarning.accept(detail == null || detail.isBlank() ? "unknown item" : detail);
+    }
 
     public static WorkerData hire(UUID owner) {
         WorkerData data = new WorkerData();
