@@ -1,6 +1,11 @@
 package com.vucelich.villagerworkers.common;
 
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
+import com.mojang.serialization.DynamicOps;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.MapLike;
+import com.mojang.serialization.RecordBuilder;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -8,16 +13,46 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * Saved worker state. Create it with {@link #hire(UUID)} and store it with the loader attachment.
  * There is no default instance: reading a missing attachment must not hire the villager.
  */
 public final class WorkerData {
+    /**
+     * Reads {@code carry} only when the key is present, so unit tests can load a 0.4.6 save
+     * without bootstrapping the item registry. An empty inventory is omitted on write.
+     */
+    private static final MapCodec<List<ItemStack>> CARRY_FIELD = new MapCodec<>() {
+        @Override
+        public <T> Stream<T> keys(DynamicOps<T> ops) {
+            return Stream.of(ops.createString("carry"));
+        }
+
+        @Override
+        public <T> DataResult<List<ItemStack>> decode(DynamicOps<T> ops, MapLike<T> input) {
+            T raw = input.get("carry");
+            if (raw == null) {
+                return DataResult.success(List.of());
+            }
+            return ItemStack.OPTIONAL_CODEC.listOf().parse(ops, raw);
+        }
+
+        @Override
+        public <T> RecordBuilder<T> encode(List<ItemStack> input, DynamicOps<T> ops, RecordBuilder<T> prefix) {
+            if (input == null || input.isEmpty()) {
+                return prefix;
+            }
+            return prefix.add("carry", input, ItemStack.OPTIONAL_CODEC.listOf());
+        }
+    };
+
     public static final Codec<WorkerData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             UUIDUtil.STRING_CODEC.fieldOf("owner").forGetter(WorkerData::owner),
             TrustedPlayer.CODEC.listOf().optionalFieldOf("trusted", List.of()).forGetter(WorkerData::trusted),
@@ -33,7 +68,8 @@ public final class WorkerData {
             ResourceLocation.CODEC.listOf().optionalFieldOf("break_whitelist", List.of()).forGetter(WorkerData::breakWhitelist),
             WorkerProblem.CODEC.optionalFieldOf("problem", WorkerProblem.NONE).forGetter(WorkerData::problem),
             UUIDUtil.STRING_CODEC.optionalFieldOf("come_target").forGetter(data -> Optional.ofNullable(data.comeTarget())),
-            AlertBookkeeping.CODEC.optionalFieldOf("alerts", AlertBookkeeping.NONE).forGetter(WorkerData::alerts)
+            AlertBookkeeping.CODEC.optionalFieldOf("alerts", AlertBookkeeping.NONE).forGetter(WorkerData::alerts),
+            CARRY_FIELD.forGetter(WorkerData::carryForCodec)
     ).apply(instance, WorkerData::fromCodec));
 
     private UUID owner;
@@ -55,6 +91,12 @@ public final class WorkerData {
     private long hurtNotifiedAt = Long.MIN_VALUE;
     private boolean hungryPending;
     private boolean hurtPending;
+    /** 27 carry slots, then one tool slot. Absent on older saves, which load as empty. */
+    public static final int CARRY_SLOTS = 27;
+    public static final int TOOL_SLOT = 27;
+    public static final int CARRY_SIZE = 28;
+    /** Null means empty, so a worker with nothing in it does not touch the item registry. */
+    private final ItemStack[] carry = new ItemStack[CARRY_SIZE];
 
     /** Not saved. Used to notice the villager waking up. */
     private boolean sleepTracked;
@@ -93,7 +135,8 @@ public final class WorkerData {
             List<ResourceLocation> breakWhitelist,
             WorkerProblem problem,
             Optional<UUID> comeTarget,
-            AlertBookkeeping alerts) {
+            AlertBookkeeping alerts,
+            List<ItemStack> carryStacks) {
         WorkerData data = new WorkerData();
         data.owner = owner;
         data.trusted.addAll(trusted);
@@ -116,7 +159,93 @@ public final class WorkerData {
         data.hurtNotifiedAt = alerts.hurtNotifiedAt();
         data.hungryPending = alerts.hungryPending();
         data.hurtPending = alerts.hurtPending();
+        data.readCarry(carryStacks);
         return data;
+    }
+
+    private List<ItemStack> carryForCodec() {
+        for (int slot = 0; slot < CARRY_SIZE; slot++) {
+            ItemStack stack = carry[slot];
+            if (stack != null && !stack.isEmpty()) {
+                List<ItemStack> copy = new ArrayList<>(CARRY_SIZE);
+                for (int index = 0; index < CARRY_SIZE; index++) {
+                    ItemStack one = carry[index];
+                    copy.add(one == null ? ItemStack.EMPTY : one.copy());
+                }
+                return copy;
+            }
+        }
+        return List.of();
+    }
+
+    private void readCarry(List<ItemStack> stacks) {
+        for (int slot = 0; slot < CARRY_SIZE; slot++) {
+            ItemStack stack = stacks != null && slot < stacks.size() ? stacks.get(slot) : null;
+            carry[slot] = stack == null || stack.isEmpty() ? null : stack.copy();
+        }
+    }
+
+    public boolean carryIsEmpty() {
+        for (int slot = 0; slot < CARRY_SIZE; slot++) {
+            ItemStack stack = carry[slot];
+            if (stack != null && !stack.isEmpty()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public ItemStack carry(int slot) {
+        if (slot < 0 || slot >= CARRY_SIZE || carry[slot] == null) {
+            return ItemStack.EMPTY;
+        }
+        return carry[slot];
+    }
+
+    public void setCarry(int slot, ItemStack stack) {
+        if (slot < 0 || slot >= CARRY_SIZE) {
+            return;
+        }
+        carry[slot] = stack == null || stack.isEmpty() ? null : stack.copy();
+    }
+
+    /** Puts a stack into the 27 carry slots. The tool slot is left alone. Returns what did not fit. */
+    public ItemStack insertCarry(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        ItemStack left = stack.copy();
+        for (int slot = 0; slot < CARRY_SLOTS && !left.isEmpty(); slot++) {
+            ItemStack existing = carry[slot];
+            if (existing == null || existing.isEmpty() || !ItemStack.isSameItemSameComponents(existing, left)) {
+                continue;
+            }
+            int room = Math.min(left.getCount(), existing.getMaxStackSize() - existing.getCount());
+            if (room <= 0) {
+                continue;
+            }
+            existing.grow(room);
+            left.shrink(room);
+        }
+        for (int slot = 0; slot < CARRY_SLOTS && !left.isEmpty(); slot++) {
+            if (carry[slot] != null && !carry[slot].isEmpty()) {
+                continue;
+            }
+            int move = Math.min(left.getMaxStackSize(), left.getCount());
+            carry[slot] = left.split(move);
+        }
+        return left;
+    }
+
+    public int carryCount(net.minecraft.world.item.Item item) {
+        int total = 0;
+        for (int slot = 0; slot < CARRY_SLOTS; slot++) {
+            ItemStack stack = carry[slot];
+            if (stack != null && stack.is(item)) {
+                total += stack.getCount();
+            }
+        }
+        return total;
     }
 
     private AlertBookkeeping alerts() {

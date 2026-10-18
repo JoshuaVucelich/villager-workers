@@ -37,13 +37,28 @@ public final class WorkerTicker {
             noteWake(villager, data);
         }
         applyDawn(level, data);
-        if (villager.tickCount % 20 == 0) {
+        boolean held = WorkerHold.postTick(villager);
+        if (held) {
+            freezeAlerts(data);
+        } else if (villager.tickCount % 20 == 0) {
             clearMissingBed(villager, data);
             alert(villager, data, ProblemCode.HUNGRY, hungry(villager));
             alert(villager, data, ProblemCode.HURT, hurt(villager));
             OwnerNotices.flushPending(villager, data);
         }
-        JobRunner.tick(villager, data);
+        if (!held) {
+            JobRunner.tick(villager, data);
+        }
+    }
+
+    /** A minute of menu time does not make a hungry or hurt line due. */
+    private static void freezeAlerts(WorkerData data) {
+        if (data.hungryNotifiedAt() != Long.MIN_VALUE) {
+            data.setHungryNotifiedAt(data.hungryNotifiedAt() + 1L);
+        }
+        if (data.hurtNotifiedAt() != Long.MIN_VALUE) {
+            data.setHurtNotifiedAt(data.hurtNotifiedAt() + 1L);
+        }
     }
 
     public static boolean hungry(Villager villager) {

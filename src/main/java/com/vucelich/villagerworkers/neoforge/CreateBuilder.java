@@ -49,6 +49,23 @@ public final class CreateBuilder {
         SESSIONS.remove(villagerId);
     }
 
+    /** Held menu time does not spend the place cooldown, the materials recheck, or the stuck timer. */
+    static void freezeWhileHeld(UUID villagerId) {
+        Session session = SESSIONS.get(villagerId);
+        if (session == null) {
+            return;
+        }
+        if (session.cooldownUntil != 0L) {
+            session.cooldownUntil++;
+        }
+        if (session.recheckAt != Long.MIN_VALUE) {
+            session.recheckAt++;
+        }
+        if (session.stuckSince != Long.MIN_VALUE) {
+            session.stuckSince++;
+        }
+    }
+
     public static void tick(Villager villager, WorkerData data) {
         if (!(villager.level() instanceof ServerLevel level)) {
             return;

@@ -57,6 +57,7 @@ One optional attachment on the villager, id `villager_workers:worker`. Absence m
 | `builder` | `BuilderConfig` | Kept when the selected job changes |
 | `breakWhitelist` | set of block ids | The only Create, Aeronautics, or other machine blocks this worker may break |
 | `problem` | problem code + optional item or block id, or empty | Latest problem the owner was told about |
+| `carry` | 27 item stacks plus one tool stack | What the worker is holding. Omitted from the save when every slot is empty, so a 0.4.6 save still loads |
 
 Configs stay stored across job switches so setup is not wiped by selecting another job.
 
@@ -77,6 +78,7 @@ Configs stay stored across job switches so setup is not wiped by selecting anoth
 - `branchSpacing`, `branchLength`: branch mode only
 - `shaftWidth`, `shaftDepth`, `shaftUp`: shaft mode only
 - `valuables`: item ids whose drops go to the valuables chest
+- `useValuables`: when true (the default, including old saves), matching drops go to the valuables chest. When false, every drop goes to the regular chest and that chest is the only one required
 - `valuablesChest`, `regularChest`, `toolChest`: positions or empty
 
 ### BuilderConfig
@@ -90,7 +92,9 @@ A new miner config starts with these item ids, and the owner can edit the list:
 
 `minecraft:diamond`, `minecraft:emerald`, `minecraft:raw_gold`, `minecraft:raw_iron`, `minecraft:raw_copper`, `minecraft:lapis_lazuli`, `minecraft:redstone`, `minecraft:coal`, `minecraft:ancient_debris`, `minecraft:quartz`, `minecraft:amethyst_shard`
 
-The filter matches dropped items, not the ore block. Ancient debris drops itself, so it is listed as the item.
+The filter matches dropped items, not the ore block. Ancient debris drops itself, so it is listed as the item. The worker screen offers checkboxes for those drops, the vanilla ores, and any block in the `c:ores` tag. Nothing on that list is typed.
+
+Mined and chopped drops go into the 27 carry slots, then into the linked chest that matches the drop. Whatever does not fit in the chest stays in the carry slots, and a full chest pauses the worker. A full carry drops the overflow on the ground. The tool slot is an axe or a pickaxe and is used before the tool chest. On death the carry slots, the tool slot, and a tool in the hand are dropped. The player can put items in and take them out from the menu.
 
 ### Work volumes
 
@@ -175,7 +179,7 @@ Server to client:
 | `open_hire_screen` | villager UUID, current name | the player who just applied the name tag |
 | `permissions_snapshot` | owner UUID, trusted UUID and last known name | the owner, when the permissions tab is opened |
 
-Job setup that is a button uses the menu's `clickMenuButton`. Text and lists use the payloads above. Both paths call the same server-side permission function.
+Job setup, the valuables checkboxes, and the size buttons use the menu's `clickMenuButton`. Trust and transfer still use the payloads above. Both paths call the same server-side permission function. Chat commands stay optional.
 
 ## GUI screens
 
@@ -188,23 +192,33 @@ Shown after a successful name tag on an adult who is not a worker. It shows the 
 
 ### Worker screen
 
-Right-click, for the owner and trusted players. Two tabs.
+Right-click, for the owner and trusted players. The top of the screen always shows the name, health (`current/max`), activity (working in green, stopped in red), job, rested or not, and the current problem. Five tabs sit under that. Buttons have tooltips. Nothing in the menu asks for typed text. The 27 carry slots and the tool slot are always on the screen, under the tab, with the player's own inventory below them.
 
-**Work**
+**Job**
 
-- Name, health (`current/max`), activity, job, rested or not, and the current problem line
-- Job choices: None, Lumberjack, Miner, Builder
-- Buttons: Start, Stop, Come
-- Setup for the selected job:
-  - Lumberjack: area corners, wand hint, clear-leaves toggle, replant toggle, log chest, sapling chest, tool chest
-  - Miner: mode, the fields for that mode, valuables list, valuables chest, regular chest, tool chest, break whitelist
-  - Builder: linked schematicannon position, material chests. If Create is not installed, the tab says so and Start is rejected for this job
+- None, Lumberjack, Miner, Builder
+- Start, Stop, Come
 
-**Permissions** (owner only)
+**Area**
 
-- Owner name
-- Trusted names, an "add online player" field, and remove
-- Transfer field and a confirm button, "Make owner"
+- Lumberjack: mark area, clear-leaves toggle, replant toggle
+- Miner: mode cycle, mark, width, height, and length buttons, wall cycle, branch or shaft buttons, valuables on or off, and a paged checkbox list of ores and valuables
+- Builder: a note that Create is required when it is not installed
+
+**Storage**
+
+- Lumberjack: log chest, sapling chest, tool chest
+- Miner: valuables chest, regular chest, tool chest
+- Builder: schematicannon, material chest
+
+**Inventory**
+
+- A short note that shift-click moves items and that the gold-edged slot is the tool
+
+**Settings**
+
+- Allow the block in the player's hand, or clear those extra blocks
+- Owner only: trust an online player, remove a trusted player, or give that player the worker
 
 ### Area wand
 
@@ -214,6 +228,12 @@ Mod item `villager_workers:area_wand`. It is not consumed. The player selects "M
 - Tunnel, branch, and shaft: the next block click is the origin. Facing is the player's horizontal facing.
 
 The server stores the result on that worker only. Clicks by a player who may not edit that worker do nothing. The wand never breaks or places blocks.
+
+### Menu hold
+
+`holdWhileMenuOpen` in the common config is on by default. While it is on and at least one player has this worker's menu open, the worker stands still. The server remembers those viewers only in memory. It drops a viewer when the menu closes, and it checks again every tick for a logout, death, a dimension change, or a walk out of the 6 block menu range. Chunk unload and server stop drop the record too. The last viewer to leave is the one that lets the worker move.
+
+While a viewer remains, pathing is cleared, horizontal movement stays zero, and gravity and water still apply. The worker looks at the nearest viewer. Lumberjack, miner, and builder actions do not run, so a hold never breaks or places a block. Cooldowns, the rescan wait, the stuck timer, and the hungry and hurt notice timers do not advance. The job, the current target, and a stopped or paused activity stay as they were. `@Name stop` during a hold stays stopped after the menu closes.
 
 ### Linking chests
 
@@ -260,7 +280,7 @@ Problems are sent as a system chat line to the owner only, and only if the owner
 | `CHEST_FULL` | The destination chest cannot take the drops. Drops stay on the ground at the worker, and work pauses. M2 |
 | `STUCK` | The worker has a target and has not moved for 10 seconds. Retry the path once. If still stuck, pause. M2 |
 | `BLOCKED` | Builder found a solid block that does not match the schematic. Skip that position. M3 |
-| `SHIP_GUARD` | Sable is loaded, but the ship lookup failed. Every block is treated as occupied, and the owner is told once. The lookup is tried again after 600 ticks (30 seconds). A lookup that returns clears that block and the notice, so digging can resume. The warning stays quiet until a plot and its sublevel both return, or the server stops. |
+| `SHIP_GUARD` | Sable is loaded, but the ship lookup failed. Every block is treated as occupied, and the owner is told once. The lookup is tried again after 600 ticks (30 seconds). A lookup that returns without throwing clears that occupied block, so digging can resume. If the plot handle is what threw, the notice stays until a later lookup gets that handle to return. A retry that never reaches the plot does not clear the notice and raise it again. The warning stays quiet until a plot and its sublevel both return, or the server stops. |
 
 `HUNGRY` and `HURT` can both be true. Send each under its own rate limit. Work does not stop for hungry or hurt. Work does pause for a missing tool, a missing or full chest, no materials, or stuck.
 

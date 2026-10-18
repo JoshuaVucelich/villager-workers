@@ -58,20 +58,23 @@ class AssemblyGuardsTest {
         mode = Mode.OUT_OF_BOUNDS;
         assertFalse(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS, POS));
         assertFalse(AssemblyGuards.shipGuardFailed(), "a returned lookup clears the digging block");
+        assertTrue(AssemblyGuards.plotHandleBroken(), "the plot handle is still the failure");
         notice = noticeAfter(notice);
-        assertEquals(ProblemCode.NONE, notice, "the notice clears with the digging block");
+        assertEquals(ProblemCode.SHIP_GUARD, notice, "the notice stays while the plot handle is broken");
         assertEquals(1, AssemblyGuards.shipFailureLogs, "a partial return keeps the log quiet");
 
         mode = Mode.THROW;
         assertTrue(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS, POS));
         assertEquals(1, AssemblyGuards.shipFailureLogs, "the next failure stays quiet");
         notice = noticeAfter(notice);
-        assertEquals(ProblemCode.SHIP_GUARD, notice);
+        assertEquals(ProblemCode.SHIP_GUARD, notice, "the notice is not raised a second time");
 
         mode = Mode.NULL_CONTAINER;
         AssemblyGuards.pollForTest(ActionPace.SHIP_RETRY_TICKS * 2L);
         assertFalse(AssemblyGuards.shipGuardFailed(), "poll clears a lookup that returns");
-        assertEquals(ProblemCode.NONE, noticeAfter(notice));
+        assertTrue(AssemblyGuards.plotHandleBroken(), "poll at the origin never called the plot");
+        notice = noticeAfter(notice);
+        assertEquals(ProblemCode.SHIP_GUARD, notice, "poll does not clear a broken plot notice");
         assertEquals(1, AssemblyGuards.shipFailureLogs);
 
         mode = Mode.THROW;
@@ -81,6 +84,9 @@ class AssemblyGuardsTest {
         mode = Mode.NO_PLOT;
         assertFalse(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS * 3L, POS));
         assertFalse(AssemblyGuards.shipGuardFailed());
+        assertFalse(AssemblyGuards.plotHandleBroken(), "a plot return clears the broken handle");
+        notice = noticeAfter(notice);
+        assertEquals(ProblemCode.NONE, notice, "the notice clears once the plot handle returns");
 
         mode = Mode.THROW;
         assertTrue(AssemblyGuards.probeForTest(ActionPace.SHIP_RETRY_TICKS * 3L, POS));
@@ -105,7 +111,7 @@ class AssemblyGuardsTest {
     }
 
     private static ProblemCode noticeAfter(ProblemCode current) {
-        if (AssemblyGuards.shipGuardFailed()) {
+        if (AssemblyGuards.shipGuardFailed() || AssemblyGuards.plotHandleBroken()) {
             return current == ProblemCode.NONE ? ProblemCode.SHIP_GUARD : current;
         }
         return current == ProblemCode.SHIP_GUARD ? ProblemCode.NONE : current;

@@ -23,6 +23,8 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 final class AssemblyGuards {
     private static boolean shipLookupFailed;
     private static boolean shipFailureLogged;
+    /** The plot handle threw, and no later call has gotten a return from it. */
+    private static boolean plotHandleFailed;
     /** Counts real warning logs. Tests read it. Server stop does not zero it. */
     static int shipFailureLogs;
     private static long shipRetryAt = Long.MIN_VALUE;
@@ -46,6 +48,11 @@ final class AssemblyGuards {
         return shipLookupFailed;
     }
 
+    /** The plot handle is still the call that failed. A retry that never reaches it must not clear the notice. */
+    static boolean plotHandleBroken() {
+        return plotHandleFailed;
+    }
+
     /** After the cooldown, try the ship lookup once even if this tick does not scan a block. */
     static void poll(ServerLevel level) {
         if (level == null || !shipLookupFailed || level.getGameTime() < shipRetryAt) {
@@ -61,6 +68,7 @@ final class AssemblyGuards {
         shipRetryAt = Long.MIN_VALUE;
         shipLookupFailed = false;
         shipFailureLogged = false;
+        plotHandleFailed = false;
     }
 
     /** Test-only. The handles replace Sable, and {@code sable} is treated as loaded. */
@@ -74,6 +82,7 @@ final class AssemblyGuards {
         sableForced = true;
         shipLookupFailed = false;
         shipFailureLogged = false;
+        plotHandleFailed = false;
         shipRetryAt = Long.MIN_VALUE;
         shipFailureLogs = 0;
         cache.clear();
@@ -90,6 +99,7 @@ final class AssemblyGuards {
         sableForced = false;
         shipLookupFailed = false;
         shipFailureLogged = false;
+        plotHandleFailed = false;
         shipRetryAt = Long.MIN_VALUE;
         shipFailureLogs = 0;
         cache.clear();
@@ -151,6 +161,8 @@ final class AssemblyGuards {
         if (shipLookupFailed && now < shipRetryAt) {
             return true;
         }
+        boolean calledPlot = false;
+        boolean plotReturned = false;
         try {
             if (!shipBound) {
                 bindShip();
@@ -168,7 +180,10 @@ final class AssemblyGuards {
                 shipLookupFailed = false;
                 return false;
             }
+            calledPlot = true;
             Object plot = shipPlot.invoke(container, new ChunkPos(pos));
+            plotReturned = true;
+            plotHandleFailed = false;
             if (plot == null) {
                 shipLookupFailed = false;
                 return false;
@@ -178,6 +193,9 @@ final class AssemblyGuards {
             shipFailureLogged = false;
             return subLevel != null;
         } catch (Throwable exception) {
+            if (calledPlot && !plotReturned) {
+                plotHandleFailed = true;
+            }
             failShip(exception, now);
             return true;
         }

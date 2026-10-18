@@ -20,6 +20,28 @@ public final class MenuIds {
     public static final int LINK_SCHEMATIC = 46;
     public static final int LINK_MATERIAL = 47;
     public static final int SHOW_PERMISSIONS = 60;
+    public static final int WIDTH_DOWN = 70;
+    public static final int WIDTH_UP = 71;
+    public static final int HEIGHT_DOWN = 72;
+    public static final int HEIGHT_UP = 73;
+    public static final int LENGTH_DOWN = 74;
+    public static final int LENGTH_UP = 75;
+    public static final int BRANCH_SPACING_DOWN = 76;
+    public static final int BRANCH_SPACING_UP = 77;
+    public static final int BRANCH_LENGTH_DOWN = 78;
+    public static final int BRANCH_LENGTH_UP = 79;
+    public static final int SHAFT_WIDTH_DOWN = 80;
+    public static final int SHAFT_WIDTH_UP = 81;
+    public static final int SHAFT_DEPTH_DOWN = 82;
+    public static final int SHAFT_DEPTH_UP = 83;
+    public static final int CYCLE_WALL = 84;
+    public static final int TOGGLE_SHAFT = 85;
+    public static final int CYCLE_MODE = 86;
+    public static final int TOGGLE_VALUABLES = 87;
+    public static final int WHITELIST_HELD = 88;
+    public static final int WHITELIST_CLEAR = 89;
+    /** First id of a valuables checkbox. The offset is an index into {@code ValuableCatalog.entries()}. */
+    public static final int VALUABLE_BASE = 400;
 
     private MenuIds() {}
 }

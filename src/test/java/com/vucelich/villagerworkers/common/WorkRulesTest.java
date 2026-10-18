@@ -239,7 +239,8 @@ class WorkRulesTest {
                 List.of(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Optional.empty(),
+                true));
         return data;
     }
 

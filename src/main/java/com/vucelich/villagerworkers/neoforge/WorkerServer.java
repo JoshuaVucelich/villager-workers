@@ -2,8 +2,10 @@ package com.vucelich.villagerworkers.neoforge;
 
 import com.vucelich.villagerworkers.common.ActivityRules;
 import com.vucelich.villagerworkers.common.ChatCommands;
+import com.vucelich.villagerworkers.common.MinerConfig;
 import com.vucelich.villagerworkers.common.MinerMode;
 import com.vucelich.villagerworkers.common.SetupLimits;
+import com.vucelich.villagerworkers.common.ValuableCatalog;
 import com.vucelich.villagerworkers.common.StatusText;
 import com.vucelich.villagerworkers.common.TrustedPlayer;
 import com.vucelich.villagerworkers.common.WorkerAction;
@@ -24,8 +26,10 @@ import com.vucelich.villagerworkers.neoforge.SetupSessions.LinkTarget;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
@@ -39,7 +43,10 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.neoforged.neoforge.event.ServerChatEvent;
+import net.neoforged.neoforge.event.entity.EntityLeaveLevelEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.tick.EntityTickEvent;
@@ -47,6 +54,13 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 public final class WorkerServer {
     private static final long HIRE_TIMEOUT_MS = 60_000L;
+    private static final List<String> WALLS = List.of(
+            "",
+            "minecraft:cobblestone",
+            "minecraft:stone",
+            "minecraft:oak_planks",
+            "minecraft:deepslate",
+            "minecraft:cobbled_deepslate");
     private static final java.util.Map<UUID, PendingHire> PENDING_HIRES = new java.util.concurrent.ConcurrentHashMap<>();
 
     private record PendingHire(UUID villagerId, long expiresAt) {}
@@ -101,6 +115,15 @@ public final class WorkerServer {
         }
     }
 
+    public static void onTickBefore(EntityTickEvent.Pre event) {
+        if (!(event.getEntity() instanceof Villager villager) || villager.level().isClientSide()) {
+            return;
+        }
+        if (WorkerAttachments.isWorker(villager)) {
+            WorkerHold.preTick(villager);
+        }
+    }
+
     public static void onTick(EntityTickEvent.Post event) {
         if (!(event.getEntity() instanceof Villager villager) || villager.level().isClientSide()) {
             return;
@@ -112,6 +135,13 @@ public final class WorkerServer {
         UUID id = event.getEntity().getUUID();
         PENDING_HIRES.remove(id);
         SetupSessions.clear(id);
+        WorkerHold.releasePlayer(id);
+    }
+
+    public static void onLeaveLevel(EntityLeaveLevelEvent event) {
+        if (event.getEntity() instanceof Villager villager && WorkerAttachments.isWorker(villager)) {
+            WorkerHold.forget(villager.getUUID());
+        }
     }
 
     public static void onChat(ServerChatEvent event) {
@@ -246,11 +276,134 @@ public final class WorkerServer {
                 sendPermissions(serverPlayer, villager, data);
                 return true;
             }
+            case MenuIds.CYCLE_MODE -> data.setMiner(data.miner().withMode(data.miner().mode().next()));
+            case MenuIds.WIDTH_DOWN -> stepMiner(data, -2, 0, 0, 0, 0, 0, 0);
+            case MenuIds.WIDTH_UP -> stepMiner(data, 2, 0, 0, 0, 0, 0, 0);
+            case MenuIds.HEIGHT_DOWN -> stepMiner(data, 0, -1, 0, 0, 0, 0, 0);
+            case MenuIds.HEIGHT_UP -> stepMiner(data, 0, 1, 0, 0, 0, 0, 0);
+            case MenuIds.LENGTH_DOWN -> stepMiner(data, 0, 0, -1, 0, 0, 0, 0);
+            case MenuIds.LENGTH_UP -> stepMiner(data, 0, 0, 1, 0, 0, 0, 0);
+            case MenuIds.BRANCH_SPACING_DOWN -> stepMiner(data, 0, 0, 0, -1, 0, 0, 0);
+            case MenuIds.BRANCH_SPACING_UP -> stepMiner(data, 0, 0, 0, 1, 0, 0, 0);
+            case MenuIds.BRANCH_LENGTH_DOWN -> stepMiner(data, 0, 0, 0, 0, -1, 0, 0);
+            case MenuIds.BRANCH_LENGTH_UP -> stepMiner(data, 0, 0, 0, 0, 1, 0, 0);
+            case MenuIds.SHAFT_WIDTH_DOWN -> stepMiner(data, 0, 0, 0, 0, 0, -1, 0);
+            case MenuIds.SHAFT_WIDTH_UP -> stepMiner(data, 0, 0, 0, 0, 0, 1, 0);
+            case MenuIds.SHAFT_DEPTH_DOWN -> stepMiner(data, 0, 0, 0, 0, 0, 0, -1);
+            case MenuIds.SHAFT_DEPTH_UP -> stepMiner(data, 0, 0, 0, 0, 0, 0, 1);
+            case MenuIds.CYCLE_WALL -> cycleWall(data);
+            case MenuIds.TOGGLE_SHAFT -> {
+                MinerConfig miner = data.miner();
+                data.setMiner(miner.withNumbers(
+                        miner.mode(),
+                        miner.width(),
+                        miner.height(),
+                        miner.length(),
+                        miner.wallBlock(),
+                        miner.branchSpacing(),
+                        miner.branchLength(),
+                        miner.shaftWidth(),
+                        miner.shaftDepth(),
+                        !miner.shaftUp(),
+                        miner.valuables()));
+            }
+            case MenuIds.TOGGLE_VALUABLES -> data.setMiner(data.miner().withUseValuables(!data.miner().useValuables()));
+            case MenuIds.WHITELIST_HELD -> {
+                if (!toggleHeldBlock(serverPlayer, data)) {
+                    return true;
+                }
+            }
+            case MenuIds.WHITELIST_CLEAR -> {
+                data.setBreakWhitelist(List.of());
+                serverPlayer.sendSystemMessage(Component.literal("Extra blocks cleared."));
+            }
             default -> {
-                return false;
+                if (id < MenuIds.VALUABLE_BASE || id >= MenuIds.VALUABLE_BASE + 512) {
+                    return false;
+                }
+                if (!toggleValuable(data, id - MenuIds.VALUABLE_BASE)) {
+                    return false;
+                }
             }
         }
         refresh(serverPlayer, villager);
+        return true;
+    }
+
+    private static void stepMiner(
+            WorkerData data, int dWidth, int dHeight, int dLength, int dSpacing, int dBranch, int dShaftWidth, int dShaftDepth) {
+        MinerConfig miner = data.miner();
+        data.setMiner(miner.withNumbers(
+                miner.mode(),
+                miner.width() + dWidth,
+                miner.height() + dHeight,
+                miner.length() + dLength,
+                miner.wallBlock(),
+                miner.branchSpacing() + dSpacing,
+                miner.branchLength() + dBranch,
+                miner.shaftWidth() + dShaftWidth,
+                miner.shaftDepth() + dShaftDepth,
+                miner.shaftUp(),
+                miner.valuables()));
+    }
+
+    private static void cycleWall(WorkerData data) {
+        MinerConfig miner = data.miner();
+        String current = miner.wallBlock() == null ? "" : miner.wallBlock();
+        int index = WALLS.indexOf(current);
+        String next = WALLS.get((Math.max(index, 0) + 1) % WALLS.size());
+        data.setMiner(miner.withNumbers(
+                miner.mode(),
+                miner.width(),
+                miner.height(),
+                miner.length(),
+                next,
+                miner.branchSpacing(),
+                miner.branchLength(),
+                miner.shaftWidth(),
+                miner.shaftDepth(),
+                miner.shaftUp(),
+                miner.valuables()));
+    }
+
+    private static boolean toggleValuable(WorkerData data, int index) {
+        List<ResourceLocation> catalog = ValuableCatalog.entries();
+        if (index < 0 || index >= catalog.size()) {
+            return false;
+        }
+        ResourceLocation chosen = catalog.get(index);
+        List<ResourceLocation> current = new ArrayList<>(data.miner().valuables());
+        if (!current.remove(chosen)) {
+            if (current.size() >= SetupLimits.MAX_LIST) {
+                return false;
+            }
+            current.add(chosen);
+        }
+        data.setMiner(data.miner().withValuables(current));
+        return true;
+    }
+
+    /** @return false when the player was told to hold a block and nothing changed */
+    private static boolean toggleHeldBlock(ServerPlayer player, WorkerData data) {
+        ItemStack held = player.getMainHandItem();
+        Block block = Block.byItem(held.getItem());
+        if (held.isEmpty() || block == Blocks.AIR) {
+            player.sendSystemMessage(Component.literal("Hold a block, then press this again."));
+            return false;
+        }
+        ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(block);
+        List<ResourceLocation> ids = new ArrayList<>(data.breakWhitelist());
+        if (!ids.remove(blockId)) {
+            if (ids.size() >= SetupLimits.MAX_LIST) {
+                player.sendSystemMessage(Component.literal("That list is full."));
+                return false;
+            }
+            ids.add(blockId);
+            player.sendSystemMessage(Component.literal("This worker may break " + blockId + "."));
+        } else {
+            player.sendSystemMessage(Component.literal("Removed " + blockId + " from the extra blocks."));
+        }
+        data.setBreakWhitelist(ids);
         return true;
     }
 
@@ -407,11 +560,14 @@ public final class WorkerServer {
         PacketDistributor.sendToPlayer(player, new WorkerSnapshotPayload(WorkerView.capture(villager, data, player)));
     }
 
-    private static void openMenu(ServerPlayer player, Villager villager, WorkerData data) {
+    static void openMenu(ServerPlayer player, Villager villager, WorkerData data) {
         WorkerView view = WorkerView.capture(villager, data, player);
-        player.openMenu(new SimpleMenuProvider(
+        OptionalInt opened = player.openMenu(new SimpleMenuProvider(
                 (id, inventory, ignored) -> new WorkerMenu(id, inventory, villager, view),
                 Component.literal(view.name())), buf -> WorkerView.STREAM_CODEC.encode(buf, view));
+        if (opened.isPresent()) {
+            WorkerHold.watch(villager, player);
+        }
     }
 
     private static void scheduleHireOffer(ServerPlayer player, Villager villager, String intendedName) {

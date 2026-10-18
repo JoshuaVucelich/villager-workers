@@ -140,6 +140,7 @@ public final class JobRunner {
         boolean resume = runtime.leftWork;
         runtime.leftWork = false;
         String signature = signature(data);
+        deliverCarry(level, villager, data);
         if (!signature.equals(runtime.signature)) {
             runtime.signature = signature;
             runtime.stump = null;
@@ -149,7 +150,7 @@ public final class JobRunner {
             restartPass(runtime);
         }
         AssemblyGuards.poll(level);
-        if (AssemblyGuards.shipGuardFailed()) {
+        if (AssemblyGuards.shipGuardFailed() || AssemblyGuards.plotHandleBroken()) {
             if (!runtime.shipGuardNoted) {
                 OwnerNotices.report(villager, data, ProblemCode.SHIP_GUARD, "");
                 runtime.shipGuardNoted = true;
@@ -217,11 +218,42 @@ public final class JobRunner {
         }
     }
 
+    /** Held menu time does not spend a cooldown, a rescan wait, or the stuck timer. */
+    static void freezeWhileHeld(Villager villager) {
+        Runtime runtime = RUNTIMES.get(villager.getUUID());
+        if (runtime != null) {
+            if (runtime.cooldownUntil != 0L) {
+                runtime.cooldownUntil++;
+            }
+            if (runtime.rescanAt != 0L) {
+                runtime.rescanAt++;
+            }
+            if (runtime.stuckSince != Long.MIN_VALUE) {
+                runtime.stuckSince++;
+            }
+        }
+        if (ModList.get().isLoaded("create")) {
+            CreateBuilder.freezeWhileHeld(villager.getUUID());
+        }
+    }
+
     public static void onDeath(LivingDropsEvent event) {
         if (!(event.getEntity() instanceof Villager villager) || !WorkerAttachments.isWorker(villager)) {
             return;
         }
         RUNTIMES.remove(villager.getUUID());
+        WorkerHold.forget(villager.getUUID());
+        WorkerData carried = WorkerAttachments.get(villager).orElse(null);
+        if (carried != null) {
+            for (int slot = 0; slot < WorkerData.CARRY_SIZE; slot++) {
+                ItemStack carriedStack = carried.carry(slot);
+                if (carriedStack.isEmpty()) {
+                    continue;
+                }
+                event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), carriedStack.copy()));
+                carried.setCarry(slot, ItemStack.EMPTY);
+            }
+        }
         if (ModList.get().isLoaded("create")) {
             CreateBuilder.forget(villager.getUUID());
         }
@@ -782,6 +814,12 @@ public final class JobRunner {
         if ((lumber ? hand.is(ItemTags.AXES) : hand.is(ItemTags.PICKAXES)) && usable(hand)) {
             return true;
         }
+        ItemStack slotted = data.carry(WorkerData.TOOL_SLOT);
+        if ((lumber ? slotted.is(ItemTags.AXES) : slotted.is(ItemTags.PICKAXES)) && usable(slotted)) {
+            data.setCarry(WorkerData.TOOL_SLOT, ItemStack.EMPTY);
+            villager.setItemSlot(EquipmentSlot.MAINHAND, slotted);
+            return true;
+        }
         returnTool(villager, data);
         BlockPos chestPos = lumber ? data.lumberjack().toolChest().orElse(null) : data.miner().toolChest().orElse(null);
         if (!(villager.level() instanceof ServerLevel level)) {
@@ -813,8 +851,13 @@ public final class JobRunner {
         if (data.job() == WorkerJob.LUMBERJACK) {
             return chestAvailable(level, villager, data, runtime, data.lumberjack().logChest().orElse(null));
         }
-        return chestAvailable(level, villager, data, runtime, data.miner().regularChest().orElse(null))
-                && chestAvailable(level, villager, data, runtime, data.miner().valuablesChest().orElse(null));
+        if (!chestAvailable(level, villager, data, runtime, data.miner().regularChest().orElse(null))) {
+            return false;
+        }
+        if (!data.miner().useValuables()) {
+            return true;
+        }
+        return chestAvailable(level, villager, data, runtime, data.miner().valuablesChest().orElse(null));
     }
 
     private enum Deposit {
@@ -830,13 +873,14 @@ public final class JobRunner {
             if (drop.isEmpty()) {
                 continue;
             }
-            BlockPos chestPos = chestFor(data, drop);
-            Deposit one = store(level, villager, data, chestPos, drop.copy());
-            if (one != Deposit.OK) {
-                result = one;
+            ItemStack left = data.insertCarry(drop.copy());
+            if (!left.isEmpty()) {
+                spawn(villager, left);
+                result = Deposit.FULL;
             }
         }
-        return result;
+        Deposit flushed = deliverCarry(level, villager, data);
+        return result == Deposit.OK ? flushed : result;
     }
 
     private static BlockPos chestFor(WorkerData data, ItemStack drop) {
@@ -846,9 +890,48 @@ public final class JobRunner {
             }
             return data.lumberjack().logChest().orElse(null);
         }
+        if (!data.miner().useValuables()) {
+            return data.miner().regularChest().orElse(null);
+        }
         ResourceLocation id = BuiltInRegistries.ITEM.getKey(drop.getItem());
         boolean valuable = data.miner().valuables().stream().anyMatch(id::equals);
         return valuable ? data.miner().valuablesChest().orElse(null) : data.miner().regularChest().orElse(null);
+    }
+
+    /** Moves carry slots into the linked chest for each stack. Leftovers stay in the carry slots. */
+    private static Deposit deliverCarry(ServerLevel level, Villager villager, WorkerData data) {
+        Deposit result = Deposit.OK;
+        for (int slot = 0; slot < WorkerData.CARRY_SLOTS; slot++) {
+            ItemStack stack = data.carry(slot);
+            if (stack.isEmpty()) {
+                continue;
+            }
+            BlockPos chestPos = chestFor(data, stack);
+            if (chestPos == null) {
+                result = Deposit.MISSING;
+                continue;
+            }
+            ContainerAccess.Failure failure = ContainerAccess.failure(level, chestPos, owner(villager, data));
+            if (failure == ContainerAccess.Failure.NO_ACCESS) {
+                result = Deposit.NO_ACCESS;
+                continue;
+            }
+            if (failure != ContainerAccess.Failure.NONE) {
+                result = Deposit.MISSING;
+                continue;
+            }
+            Container chest = openLinked(level, villager, data, chestPos);
+            if (chest == null) {
+                result = Deposit.MISSING;
+                continue;
+            }
+            ItemStack left = ContainerAccess.insert(chest, stack);
+            data.setCarry(slot, left);
+            if (!left.isEmpty()) {
+                result = Deposit.FULL;
+            }
+        }
+        return result;
     }
 
     private static Deposit store(ServerLevel level, Villager villager, WorkerData data, BlockPos chestPos, ItemStack stack) {

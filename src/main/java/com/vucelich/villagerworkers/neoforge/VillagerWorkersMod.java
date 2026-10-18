@@ -7,7 +7,9 @@ import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
@@ -17,7 +19,8 @@ import org.slf4j.Logger;
 public final class VillagerWorkersMod {
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    public VillagerWorkersMod(IEventBus modBus) {
+    public VillagerWorkersMod(IEventBus modBus, ModContainer container) {
+        container.registerConfig(ModConfig.Type.COMMON, WorkerSettings.SPEC);
         ModItems.ITEMS.register(modBus);
         ModMenus.MENUS.register(modBus);
         WorkerAttachments.ATTACHMENTS.register(modBus);
@@ -28,11 +31,14 @@ public final class VillagerWorkersMod {
         }
         NeoForge.EVENT_BUS.addListener(WorkerServer::onEntityInteract);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOW, WorkerServer::onRightClickBlock);
+        NeoForge.EVENT_BUS.addListener(WorkerServer::onTickBefore);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onTick);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onChat);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onLogout);
+        NeoForge.EVENT_BUS.addListener(WorkerServer::onLeaveLevel);
         NeoForge.EVENT_BUS.addListener(JobRunner::onDeath);
         NeoForge.EVENT_BUS.addListener(AssemblyGuards::onServerStopped);
+        NeoForge.EVENT_BUS.addListener(WorkerHold::onServerStopped);
         LOGGER.info("Villager Workers ({}) loaded", VillagerWorkers.MOD_ID);
     }
 

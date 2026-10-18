@@ -1,9 +1,15 @@
 package com.vucelich.villagerworkers.common;
 
 import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
+import com.mojang.serialization.DynamicOps;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.MapLike;
+import com.mojang.serialization.RecordBuilder;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 
@@ -23,7 +29,53 @@ public record MinerConfig(
         List<ResourceLocation> valuables,
         Optional<BlockPos> valuablesChest,
         Optional<BlockPos> regularChest,
-        Optional<BlockPos> toolChest) {
+        Optional<BlockPos> toolChest,
+        boolean useValuables) {
+    /**
+     * The valuables list and the on/off flag share one codec field so the record stays within
+     * the 16-field codec limit. A missing flag means on, which is what a 0.4.6 save contains.
+     */
+    private record ValuableSettings(List<ResourceLocation> ids, boolean use) {}
+
+    private static final MapCodec<ValuableSettings> VALUABLE_SETTINGS = new MapCodec<>() {
+        @Override
+        public <T> Stream<T> keys(DynamicOps<T> ops) {
+            return Stream.of(ops.createString("valuables"), ops.createString("use_valuables"));
+        }
+
+        @Override
+        public <T> DataResult<ValuableSettings> decode(DynamicOps<T> ops, MapLike<T> input) {
+            List<ResourceLocation> ids = defaultValuables();
+            T rawIds = input.get("valuables");
+            if (rawIds != null) {
+                DataResult<List<ResourceLocation>> parsed = ResourceLocation.CODEC.listOf().parse(ops, rawIds);
+                if (parsed.result().isEmpty()) {
+                    return DataResult.error(() -> parsed.error().map(error -> error.message()).orElse("valuables"));
+                }
+                ids = parsed.result().get();
+            }
+            boolean use = true;
+            T rawUse = input.get("use_valuables");
+            if (rawUse != null) {
+                DataResult<Boolean> parsed = Codec.BOOL.parse(ops, rawUse);
+                if (parsed.result().isEmpty()) {
+                    return DataResult.error(() -> parsed.error().map(error -> error.message()).orElse("use_valuables"));
+                }
+                use = parsed.result().get();
+            }
+            return DataResult.success(new ValuableSettings(ids, use));
+        }
+
+        @Override
+        public <T> RecordBuilder<T> encode(ValuableSettings input, DynamicOps<T> ops, RecordBuilder<T> prefix) {
+            prefix.add("valuables", input.ids(), ResourceLocation.CODEC.listOf());
+            if (!input.use()) {
+                prefix.add("use_valuables", false, Codec.BOOL);
+            }
+            return prefix;
+        }
+    };
+
     public static final Codec<MinerConfig> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.STRING.xmap(MinerMode::byId, MinerMode::id).optionalFieldOf("mode", MinerMode.CLEAR_BOX).forGetter(MinerConfig::mode),
             WorkArea.CODEC.optionalFieldOf("area").forGetter(MinerConfig::area),
@@ -37,11 +89,12 @@ public record MinerConfig(
             Codec.INT.optionalFieldOf("shaft_width", 2).forGetter(MinerConfig::shaftWidth),
             Codec.INT.optionalFieldOf("shaft_depth", 16).forGetter(MinerConfig::shaftDepth),
             Codec.BOOL.optionalFieldOf("shaft_up", false).forGetter(MinerConfig::shaftUp),
-            ResourceLocation.CODEC.listOf().optionalFieldOf("valuables", defaultValuables()).forGetter(MinerConfig::valuables),
+            VALUABLE_SETTINGS.forGetter(config -> new ValuableSettings(config.valuables(), config.useValuables())),
             BlockPos.CODEC.optionalFieldOf("valuables_chest").forGetter(MinerConfig::valuablesChest),
             BlockPos.CODEC.optionalFieldOf("regular_chest").forGetter(MinerConfig::regularChest),
             BlockPos.CODEC.optionalFieldOf("tool_chest").forGetter(MinerConfig::toolChest)
-    ).apply(instance, MinerConfig::new));
+    ).apply(instance, (mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, settings, valuablesChest, regularChest, toolChest) ->
+            new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, settings.ids(), valuablesChest, regularChest, toolChest, settings.use())));
 
     public static MinerConfig defaults() {
         return new MinerConfig(
@@ -60,7 +113,8 @@ public record MinerConfig(
                 defaultValuables(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty());
+                Optional.empty(),
+                true);
     }
 
     public static List<ResourceLocation> defaultValuables() {
@@ -86,19 +140,20 @@ public record MinerConfig(
                 valuables == null ? List.of() : valuables.stream().limit(SetupLimits.MAX_LIST).toList(),
                 valuablesChest,
                 regularChest,
-                toolChest);
+                toolChest,
+                useValuables);
     }
 
     public MinerConfig withMode(MinerMode mode) {
-        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest);
+        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest, useValuables);
     }
 
     public MinerConfig withArea(Optional<WorkArea> area) {
-        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest);
+        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest, useValuables);
     }
 
     public MinerConfig withOrigin(Optional<WorkOrigin> origin) {
-        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest);
+        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest, useValuables);
     }
 
     public MinerConfig withNumbers(
@@ -113,14 +168,22 @@ public record MinerConfig(
             int shaftDepth,
             boolean shaftUp,
             List<ResourceLocation> valuables) {
-        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest).sanitized();
+        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest, useValuables).sanitized();
+    }
+
+    public MinerConfig withUseValuables(boolean useValuables) {
+        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest, useValuables);
+    }
+
+    public MinerConfig withValuables(List<ResourceLocation> valuables) {
+        return new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, toolChest, useValuables).sanitized();
     }
 
     public MinerConfig withChest(ChestSlot slot, Optional<BlockPos> pos) {
         return switch (slot) {
-            case VALUABLES -> new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, pos, regularChest, toolChest);
-            case REGULAR -> new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, pos, toolChest);
-            case TOOL -> new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, pos);
+            case VALUABLES -> new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, pos, regularChest, toolChest, useValuables);
+            case REGULAR -> new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, pos, toolChest, useValuables);
+            case TOOL -> new MinerConfig(mode, area, origin, width, height, length, wallBlock, branchSpacing, branchLength, shaftWidth, shaftDepth, shaftUp, valuables, valuablesChest, regularChest, pos, useValuables);
         };
     }
 
