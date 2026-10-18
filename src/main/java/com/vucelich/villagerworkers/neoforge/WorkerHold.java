@@ -21,7 +21,6 @@ import net.neoforged.neoforge.event.server.ServerStoppedEvent;
  */
 final class WorkerHold {
     private static final Map<UUID, Set<UUID>> VIEWERS = new ConcurrentHashMap<>();
-    private static final Map<UUID, double[]> PIN = new ConcurrentHashMap<>();
 
     private WorkerHold() {}
 
@@ -43,7 +42,6 @@ final class WorkerHold {
         viewers.remove(playerId);
         if (viewers.isEmpty()) {
             VIEWERS.remove(villagerId, viewers);
-            PIN.remove(villagerId);
         }
     }
 
@@ -54,7 +52,6 @@ final class WorkerHold {
         VIEWERS.entrySet().removeIf(entry -> {
             entry.getValue().remove(playerId);
             if (entry.getValue().isEmpty()) {
-                PIN.remove(entry.getKey());
                 return true;
             }
             return false;
@@ -71,35 +68,29 @@ final class WorkerHold {
             return;
         }
         VIEWERS.remove(villagerId);
-        PIN.remove(villagerId);
     }
 
     static void onServerStopped(ServerStoppedEvent event) {
         VIEWERS.clear();
-        PIN.clear();
     }
 
     /** Stop pathing before the villager tick so vanilla walking does not start. */
     static boolean preTick(Villager villager) {
         ServerPlayer look = refresh(villager);
         if (look == null) {
-            PIN.remove(villager.getUUID());
             return false;
         }
-        double[] pin = PIN.computeIfAbsent(villager.getUUID(), id -> new double[] {villager.getX(), villager.getY(), villager.getZ()});
-        holdStill(villager, look, pin);
+        holdStill(villager, look);
         return true;
     }
 
-    /** Put the villager back on its pin after the tick, and freeze job timers. */
+    /** Stop movement again after the tick, and freeze job timers. Position is left alone so a ship can carry the worker. */
     static boolean postTick(Villager villager) {
         ServerPlayer look = refresh(villager);
         if (look == null) {
-            PIN.remove(villager.getUUID());
             return false;
         }
-        double[] pin = PIN.computeIfAbsent(villager.getUUID(), id -> new double[] {villager.getX(), villager.getY(), villager.getZ()});
-        holdStill(villager, look, pin);
+        holdStill(villager, look);
         JobRunner.freezeWhileHeld(villager);
         return true;
     }
@@ -137,7 +128,6 @@ final class WorkerHold {
             viewers.removeAll(stale);
             if (viewers.isEmpty()) {
                 VIEWERS.remove(villager.getUUID(), viewers);
-                PIN.remove(villager.getUUID());
             }
         }
         return nearest;
@@ -160,16 +150,9 @@ final class WorkerHold {
         return bound == null || bound == villager || bound.getUUID().equals(villager.getUUID());
     }
 
-    private static void holdStill(Villager villager, ServerPlayer look, double[] pin) {
+    private static void holdStill(Villager villager, ServerPlayer look) {
         Vec3 motion = villager.getDeltaMovement();
         villager.setDeltaMovement(0.0, motion.y, 0.0);
-        villager.setPos(pin[0], villager.getY(), pin[2]);
-        // Snapping after gravity can leave the villager inside the floor. Put them back on the last free spot.
-        if (villager.isInWall()) {
-            villager.setPos(pin[0], pin[1], pin[2]);
-        } else {
-            pin[1] = villager.getY();
-        }
         villager.setXxa(0.0F);
         villager.setZza(0.0F);
         villager.getNavigation().stop();

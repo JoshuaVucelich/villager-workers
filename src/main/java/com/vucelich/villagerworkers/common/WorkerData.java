@@ -41,7 +41,29 @@ public final class WorkerData {
             if (raw == null) {
                 return DataResult.success(List.of());
             }
-            return ItemStack.OPTIONAL_CODEC.listOf().parse(ops, raw);
+            DataResult<List<ItemStack>> parsed;
+            try {
+                parsed = ItemStack.OPTIONAL_CODEC.listOf().parse(ops, raw);
+            } catch (RuntimeException ex) {
+                parsed = DataResult.error(ex::getMessage);
+            }
+            if (parsed.result().isPresent()) {
+                return parsed;
+            }
+            // One unknown item must not reject the rest of the worker.
+            return ops.getStream(raw).map(stream -> {
+                List<ItemStack> stacks = new ArrayList<>();
+                stream.forEach(element -> {
+                    ItemStack stack;
+                    try {
+                        stack = ItemStack.OPTIONAL_CODEC.parse(ops, element).result().orElse(ItemStack.EMPTY);
+                    } catch (RuntimeException ex) {
+                        stack = ItemStack.EMPTY;
+                    }
+                    stacks.add(stack);
+                });
+                return stacks;
+            });
         }
 
         @Override

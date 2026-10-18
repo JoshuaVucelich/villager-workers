@@ -192,7 +192,7 @@ Shown after a successful name tag on an adult who is not a worker. It shows the 
 
 ### Worker screen
 
-Right-click, for the owner and trusted players. The top of the screen always shows the name, health (`current/max`), activity (working in green, stopped in red), job, rested or not, and the current problem. Five tabs sit under that. Buttons have tooltips. Nothing in the menu asks for typed text. The 27 carry slots and the tool slot are always on the screen, under the tab, with the player's own inventory below them.
+Right-click, for the owner and trusted players. The top of the screen always shows the name, health (`current/max`), activity (working in green, stopped in red), job, rested or not, and the current problem. Five tabs sit under that. Buttons have tooltips. Nothing in the menu asks for typed text. The panel is 448 by 232, so it fits a 1920x1080 window at GUI scale 4. The 27 carry slots, the gold tool slot, and the player's inventory sit on the right. Size buttons use the same `Name- value` and `Name+` labels.
 
 **Job**
 
@@ -233,7 +233,7 @@ The server stores the result on that worker only. Clicks by a player who may not
 
 `holdWhileMenuOpen` in the common config is on by default. While it is on and at least one player has this worker's menu open, the worker stands still. The server remembers those viewers only in memory. It drops a viewer when the menu closes, and it checks again every tick for a logout, death, a dimension change, or a walk out of the 6 block menu range. Chunk unload and server stop drop the record too. The last viewer to leave is the one that lets the worker move.
 
-While a viewer remains, pathing is cleared, horizontal movement stays zero, and gravity and water still apply. The worker looks at the nearest viewer. Lumberjack, miner, and builder actions do not run, so a hold never breaks or places a block. Cooldowns, the rescan wait, the stuck timer, and the hungry and hurt notice timers do not advance. The job, the current target, and a stopped or paused activity stay as they were. `@Name stop` during a hold stays stopped after the menu closes.
+While a viewer remains, pathing is cleared and horizontal movement is set to zero. The worker is not moved back to a fixed world X or Z, so a moving ship can carry them. Gravity and water still apply. The worker looks at the nearest viewer. Lumberjack, miner, and builder actions do not run, so a hold never breaks or places a block. Cooldowns, the rescan wait, the stuck timer, and the hungry and hurt notice timers do not advance. The job, the current target, and a stopped or paused activity stay as they were. `@Name stop` during a hold stays stopped after the menu closes.
 
 ### Linking chests
 

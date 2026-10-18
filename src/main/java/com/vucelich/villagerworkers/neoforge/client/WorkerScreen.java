@@ -31,8 +31,8 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
 
     public WorkerScreen(WorkerMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
-        this.imageWidth = 284;
-        this.imageHeight = 328;
+        this.imageWidth = WorkerMenu.PANEL_WIDTH;
+        this.imageHeight = WorkerMenu.PANEL_HEIGHT;
         this.inventoryLabelY = 10000;
         this.titleLabelY = 10000;
     }
@@ -53,13 +53,15 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         super.init();
         int x = this.leftPos + 8;
         int y = this.topPos + 36;
-        addRenderableWidget(tabButton("Job", "Choose the job and start, stop, or call the worker.", x, y, TAB_JOB));
-        addRenderableWidget(tabButton("Area", "Mark where this worker works, and set the size.", x + 54, y, TAB_AREA));
-        addRenderableWidget(tabButton("Storage", "Link the chests this worker uses.", x + 108, y, TAB_STORAGE));
-        addRenderableWidget(tabButton("Inventory", "Items this worker is carrying. Shift-click to move them.", x + 162, y, TAB_INVENTORY));
-        addRenderableWidget(tabButton("Settings", "Who else may use this worker, and extra blocks it may break.", x + 216, y, TAB_SETTINGS));
+        int tabWidth = 84;
+        int tabStep = 86;
+        addRenderableWidget(tabButton("Job", "Choose the job and start, stop, or call the worker.", x, y, tabWidth, TAB_JOB));
+        addRenderableWidget(tabButton("Area", "Mark where this worker works, and set the size.", x + tabStep, y, tabWidth, TAB_AREA));
+        addRenderableWidget(tabButton("Storage", "Link the chests this worker uses.", x + tabStep * 2, y, tabWidth, TAB_STORAGE));
+        addRenderableWidget(tabButton("Inventory", "Items this worker is carrying. Shift-click to move them.", x + tabStep * 3, y, tabWidth, TAB_INVENTORY));
+        addRenderableWidget(tabButton("Settings", "Who else may use this worker, and extra blocks it may break.", x + tabStep * 4, y, tabWidth, TAB_SETTINGS));
         WorkerView view = this.menu.view();
-        int content = this.topPos + 58;
+        int content = this.topPos + 56;
         switch (tab) {
             case TAB_AREA -> initArea(view, x, content);
             case TAB_STORAGE -> initStorage(view, x, content);
@@ -71,14 +73,14 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     }
 
     private void initJob(int x, int y) {
-        addRenderableWidget(action("None", "No job. This worker waits.", x, y, 60, MenuIds.JOB_NONE));
-        addRenderableWidget(action("Lumberjack", "Cuts trees inside the marked area.", x + 64, y, 70, MenuIds.JOB_LUMBERJACK));
-        addRenderableWidget(action("Miner", "Digs the marked area, tunnel, branch, or shaft.", x + 138, y, 60, MenuIds.JOB_MINER));
-        addRenderableWidget(action("Builder", "Places a linked Create schematic.", x + 202, y, 66, MenuIds.JOB_BUILDER));
+        addRenderableWidget(action("None", "No job. This worker waits.", x, y, 54, MenuIds.JOB_NONE));
+        addRenderableWidget(action("Lumberjack", "Cuts trees inside the marked area.", x + 56, y, 74, MenuIds.JOB_LUMBERJACK));
+        addRenderableWidget(action("Miner", "Digs the marked area, tunnel, branch, or shaft.", x + 132, y, 52, MenuIds.JOB_MINER));
+        addRenderableWidget(action("Builder", "Places a linked Create schematic.", x + 186, y, 62, MenuIds.JOB_BUILDER));
         y += 20;
-        addRenderableWidget(action("Start", "Begin the selected job.", x, y, 60, MenuIds.START));
-        addRenderableWidget(action("Stop", "Stop and stay stopped until you start again.", x + 64, y, 60, MenuIds.STOP));
-        addRenderableWidget(action("Come", "Walk to you, then wait.", x + 128, y, 60, MenuIds.COME));
+        addRenderableWidget(action("Start", "Begin the selected job.", x, y, 54, MenuIds.START));
+        addRenderableWidget(action("Stop", "Stop and stay stopped until you start again.", x + 56, y, 54, MenuIds.STOP));
+        addRenderableWidget(action("Come", "Walk to you, then wait.", x + 112, y, 54, MenuIds.COME));
     }
 
     private void initArea(WorkerView view, int x, int y) {
@@ -101,42 +103,36 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         String markTip = "clear_box".equals(view.minerMode())
                 ? "Use the area wand on two corners."
                 : "Use the area wand on the first block. Facing follows where you look.";
-        addRenderableWidget(action("Mode: " + pretty(view.minerMode()), "Switch between clear box, tunnel, branch, and shaft.", x, y, 108, MenuIds.CYCLE_MODE));
-        addRenderableWidget(action(mark, markTip, x + 112, y, 72, MenuIds.MARK));
+        addRenderableWidget(action("Mode: " + pretty(view.minerMode()), "Switch between clear box, tunnel, branch, and shaft.", x, y, 100, MenuIds.CYCLE_MODE));
+        addRenderableWidget(action(mark, markTip, x + 102, y, 68, MenuIds.MARK));
         addRenderableWidget(action(
                 view.useValuables() ? "Valuables: on" : "Valuables: off",
                 "On: matching drops go to the valuables chest. Off: everything goes to the regular chest.",
-                x + 188,
+                x + 172,
                 y,
-                80,
+                76,
                 MenuIds.TOGGLE_VALUABLES));
         y += 18;
-        addRenderableWidget(action("W- " + view.width(), "Narrower tunnel. Width stays an odd number from 1 to 7.", x, y, 44, MenuIds.WIDTH_DOWN));
-        addRenderableWidget(action("W+", "Wider tunnel.", x + 46, y, 28, MenuIds.WIDTH_UP));
-        addRenderableWidget(action("H- " + view.height(), "Lower the corridor. Height is 2 to 5.", x + 78, y, 44, MenuIds.HEIGHT_DOWN));
-        addRenderableWidget(action("H+", "Raise the corridor.", x + 124, y, 28, MenuIds.HEIGHT_UP));
-        addRenderableWidget(action("L- " + view.length(), "Shorter corridor. Length is 1 to 128.", x + 156, y, 52, MenuIds.LENGTH_DOWN));
-        addRenderableWidget(action("L+", "Longer corridor.", x + 210, y, 28, MenuIds.LENGTH_UP));
+        int cursor = x;
+        cursor += pair(cursor, y, "W- " + view.width(), "Narrower tunnel. Width stays an odd number from 1 to 7.", MenuIds.WIDTH_DOWN, "W+", "Wider tunnel.", MenuIds.WIDTH_UP, 44);
+        cursor += pair(cursor, y, "H- " + view.height(), "Lower the corridor. Height is 2 to 5.", MenuIds.HEIGHT_DOWN, "H+", "Raise the corridor.", MenuIds.HEIGHT_UP, 44);
+        pair(cursor, y, "L- " + view.length(), "Shorter corridor. Length is 1 to 128.", MenuIds.LENGTH_DOWN, "L+", "Longer corridor.", MenuIds.LENGTH_UP, 52);
         y += 18;
         String wall = view.wallBlock() == null || view.wallBlock().isEmpty() ? "none" : shortName(view.wallBlock());
-        addRenderableWidget(action("Wall: " + wall, "Cycle the block placed on the sides and ceiling. None means dig only.", x, y, 120, MenuIds.CYCLE_WALL));
+        addRenderableWidget(action("Wall: " + wall, "Cycle the block placed on the sides and ceiling. None means dig only.", x, y, 100, MenuIds.CYCLE_WALL));
         if ("branch".equals(view.minerMode())) {
-            addRenderableWidget(action("Gap " + view.branchSpacing(), "Blocks between side branches.", x + 124, y, 52, MenuIds.BRANCH_SPACING_UP));
-            addRenderableWidget(action("Gap-", "Closer branches.", x + 178, y, 36, MenuIds.BRANCH_SPACING_DOWN));
-            addRenderableWidget(action("Arm " + view.branchLength(), "How far each branch reaches.", x + 218, y, 50, MenuIds.BRANCH_LENGTH_UP));
+            cursor = x + 102;
+            cursor += pair(cursor, y, "Gap- " + view.branchSpacing(), "Closer branches.", MenuIds.BRANCH_SPACING_DOWN, "Gap+", "Blocks between side branches.", MenuIds.BRANCH_SPACING_UP, 48);
+            pair(cursor, y, "Arm- " + view.branchLength(), "Shorter branches.", MenuIds.BRANCH_LENGTH_DOWN, "Arm+", "How far each branch reaches.", MenuIds.BRANCH_LENGTH_UP, 48);
         } else if ("shaft".equals(view.minerMode())) {
-            addRenderableWidget(action("Size " + view.shaftWidth(), "Shaft width, from 1 to 5.", x + 124, y, 52, MenuIds.SHAFT_WIDTH_UP));
-            addRenderableWidget(action("S-", "Narrower shaft.", x + 178, y, 28, MenuIds.SHAFT_WIDTH_DOWN));
-            addRenderableWidget(action("Depth " + view.shaftDepth(), "How far the shaft goes.", x + 210, y, 58, MenuIds.SHAFT_DEPTH_UP));
+            cursor = x + 102;
+            cursor += pair(cursor, y, "S- " + view.shaftWidth(), "Narrower shaft.", MenuIds.SHAFT_WIDTH_DOWN, "S+", "Shaft width, from 1 to 5.", MenuIds.SHAFT_WIDTH_UP, 40);
+            pair(cursor, y, "D- " + view.shaftDepth(), "Shallower shaft.", MenuIds.SHAFT_DEPTH_DOWN, "D+", "How far the shaft goes.", MenuIds.SHAFT_DEPTH_UP, 44);
         }
         y += 18;
         if ("shaft".equals(view.minerMode())) {
             addRenderableWidget(action(view.shaftUp() ? "Shaft: up" : "Shaft: down", "Dig upward or downward from the origin.", x, y, 80, MenuIds.TOGGLE_SHAFT));
-            addRenderableWidget(action("D-", "Shallower shaft.", x + 84, y, 28, MenuIds.SHAFT_DEPTH_DOWN));
-            x += 116;
-        } else if ("branch".equals(view.minerMode())) {
-            addRenderableWidget(action("Arm-", "Shorter branches.", x, y, 44, MenuIds.BRANCH_LENGTH_DOWN));
-            x += 48;
+            y += 18;
         }
         initValuables(view, x, y);
     }
@@ -173,8 +169,8 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
                 ResourceLocation id = catalog.get(index);
                 boolean on = listed(view.valuables(), id.toString());
                 String label = (on ? "[x] " : "[ ] ") + shortName(id.toString());
-                int bx = x + column * 78;
-                addRenderableWidget(action(label, id.toString(), bx, y + row * 18, 76, MenuIds.VALUABLE_BASE + index));
+                int bx = x + column * 124;
+                addRenderableWidget(action(label, id.toString(), bx, y + row * 18, 120, MenuIds.VALUABLE_BASE + index));
             }
         }
     }
@@ -187,9 +183,9 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
                 addRenderableWidget(action("Link tools", "Chest that holds the axe.", x + 192, y, 76, MenuIds.LINK_LUMBER_TOOL));
             }
             case "miner" -> {
-                addRenderableWidget(action("Valuables chest", "Where checked drops are delivered.", x, y, 110, MenuIds.LINK_VALUABLES));
-                addRenderableWidget(action("Regular chest", "Where other drops, and everything when valuables are off, are delivered.", x + 114, y, 100, MenuIds.LINK_REGULAR));
-                addRenderableWidget(action("Tool chest", "Chest that holds the pickaxe.", x + 218, y, 50, MenuIds.LINK_MINER_TOOL));
+                addRenderableWidget(action("Valuables chest", "Where checked drops are delivered.", x, y, 90, MenuIds.LINK_VALUABLES));
+                addRenderableWidget(action("Regular chest", "Where other drops, and everything when valuables are off, are delivered.", x + 92, y, 80, MenuIds.LINK_REGULAR));
+                addRenderableWidget(action("Tool chest", "Chest that holds the pickaxe.", x + 174, y, 74, MenuIds.LINK_MINER_TOOL));
             }
             case "builder" -> {
                 addRenderableWidget(action("Link schematic", "Right-click a placed schematicannon that already has a schematic.", x, y, 110, MenuIds.LINK_SCHEMATIC));
@@ -250,10 +246,17 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         }
     }
 
-    private Button tabButton(String label, String tip, int x, int y, int index) {
+    private int pair(
+            int x, int y, String downLabel, String downTip, int downId, String upLabel, String upTip, int upId, int downWidth) {
+        addRenderableWidget(action(downLabel, downTip, x, y, downWidth, downId));
+        addRenderableWidget(action(upLabel, upTip, x + downWidth + 2, y, 26, upId));
+        return downWidth + 30;
+    }
+
+    private Button tabButton(String label, String tip, int x, int y, int width, int index) {
         String text = tab == index ? "[" + label + "]" : label;
         return Button.builder(Component.literal(text), ignored -> selectTab(index))
-                .bounds(x, y, 52, 16)
+                .bounds(x, y, width, 16)
                 .tooltip(Tooltip.create(Component.literal(tip)))
                 .build();
     }
@@ -326,7 +329,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     }
 
     private static String trim(String text) {
-        return text.length() > 52 ? text.substring(0, 49) + "..." : text;
+        return text.length() > 40 ? text.substring(0, 37) + "..." : text;
     }
 
     private static int activityColor(String activity) {
@@ -363,17 +366,21 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     private static String shortName(String id) {
         int colon = id.indexOf(':');
         String path = colon >= 0 ? id.substring(colon + 1) : id;
-        return path.length() > 8 ? path.substring(0, 7) + "." : path;
+        return path.length() > 16 ? path.substring(0, 15) + "." : path;
     }
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         super.render(graphics, mouseX, mouseY, partialTick);
+        drawHelp(graphics);
         renderTooltip(graphics, mouseX, mouseY);
+    }
+
+    private void drawHelp(GuiGraphics graphics) {
         if (tab == TAB_INVENTORY) {
             graphics.drawString(this.font, "27 carry slots. The gold slot is the tool.", this.leftPos + 8, this.topPos + 62, 0xFFD27A, false);
             graphics.drawString(this.font, "Shift-click moves items in or out.", this.leftPos + 8, this.topPos + 74, 0xC8BBA8, false);
-            graphics.drawString(this.font, "Mined items sit here until a linked chest has room.", this.leftPos + 8, this.topPos + 86, 0xC8BBA8, false);
+            graphics.drawString(this.font, "Mined items wait here for a chest.", this.leftPos + 8, this.topPos + 86, 0xC8BBA8, false);
         } else if (tab == TAB_JOB) {
             graphics.drawString(this.font, "Opening this menu holds the worker still.", this.leftPos + 8, this.topPos + 100, 0xC8BBA8, false);
             graphics.drawString(this.font, detail(this.menu.view()), this.leftPos + 8, this.topPos + 112, 0xC8BBA8, false);

@@ -1,6 +1,8 @@
 package com.vucelich.villagerworkers.neoforge;
 
+import com.vucelich.villagerworkers.common.WorkerAction;
 import com.vucelich.villagerworkers.common.WorkerData;
+import com.vucelich.villagerworkers.common.WorkerPermissions;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.Container;
@@ -16,6 +18,15 @@ import net.minecraft.world.level.Level;
 
 public class WorkerMenu extends AbstractContainerMenu {
     public static final double RANGE_SQR = 36.0;
+    /** Fits a 1920x1080 window at GUI scale 4 (480 by 270). Slots sit on the right. */
+    public static final int PANEL_WIDTH = 448;
+    public static final int PANEL_HEIGHT = 232;
+    public static final int CARRY_X = 268;
+    public static final int CARRY_Y = 56;
+    public static final int TOOL_X = 268;
+    public static final int TOOL_Y = 114;
+    public static final int PLAYER_X = 268;
+    public static final int PLAYER_Y = 138;
 
     private final Villager villager;
     private WorkerView view;
@@ -38,17 +49,17 @@ public class WorkerMenu extends AbstractContainerMenu {
     private void buildSlots(Container carry, Inventory inventory) {
         for (int row = 0; row < 3; row++) {
             for (int column = 0; column < 9; column++) {
-                addSlot(new Slot(carry, column + row * 9, 32 + column * 18, 186 + row * 18));
+                addSlot(new Slot(carry, column + row * 9, CARRY_X + column * 18, CARRY_Y + row * 18));
             }
         }
-        addSlot(new Slot(carry, WorkerData.TOOL_SLOT, 8, 204) {
+        addSlot(new Slot(carry, WorkerData.TOOL_SLOT, TOOL_X, TOOL_Y) {
             @Override
             public boolean mayPlace(ItemStack stack) {
                 return stack.is(ItemTags.AXES) || stack.is(ItemTags.PICKAXES);
             }
         });
-        int playerLeft = 62;
-        int playerTop = 248;
+        int playerLeft = PLAYER_X;
+        int playerTop = PLAYER_Y;
         for (int row = 0; row < 3; row++) {
             for (int column = 0; column < 9; column++) {
                 addSlot(new Slot(inventory, column + row * 9 + 9, playerLeft + column * 18, playerTop + row * 18));
@@ -85,11 +96,18 @@ public class WorkerMenu extends AbstractContainerMenu {
                 target = found;
             }
         }
-        return target != null
-                && target.isAlive()
-                && !target.isRemoved()
-                && player.level() == target.level()
-                && player.distanceToSqr(target) <= RANGE_SQR;
+        if (target == null || !target.isAlive() || target.isRemoved()) {
+            return false;
+        }
+        if (player.level() != target.level() || player.distanceToSqr(target) > RANGE_SQR) {
+            return false;
+        }
+        if (player.level().isClientSide()) {
+            return true;
+        }
+        WorkerData data = WorkerAttachments.get(target).orElse(null);
+        return data != null
+                && WorkerPermissions.allows(data.owner(), data.trustedIds(), player.getUUID(), WorkerAction.OPEN_SCREEN);
     }
 
     @Override

@@ -318,7 +318,7 @@ public final class WorkerServer {
                 serverPlayer.sendSystemMessage(Component.literal("Extra blocks cleared."));
             }
             default -> {
-                if (id < MenuIds.VALUABLE_BASE || id >= MenuIds.VALUABLE_BASE + 512) {
+                if (id < MenuIds.VALUABLE_BASE) {
                     return false;
                 }
                 if (!toggleValuable(data, id - MenuIds.VALUABLE_BASE)) {

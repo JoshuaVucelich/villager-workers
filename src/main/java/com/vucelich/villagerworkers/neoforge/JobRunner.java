@@ -12,6 +12,7 @@ import com.vucelich.villagerworkers.common.WorkerJob;
 import com.vucelich.villagerworkers.common.WorkerProblem;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -140,7 +141,6 @@ public final class JobRunner {
         boolean resume = runtime.leftWork;
         runtime.leftWork = false;
         String signature = signature(data);
-        deliverCarry(level, villager, data);
         if (!signature.equals(runtime.signature)) {
             runtime.signature = signature;
             runtime.stump = null;
@@ -168,6 +168,11 @@ public final class JobRunner {
             if (runtime.walkTo != null) {
                 walk(villager, runtime);
             }
+            return;
+        }
+        Deposit delivered = deliverCarry(level, villager, data);
+        if (delivered != Deposit.OK) {
+            pauseForDeposit(villager, data, runtime, delivered);
             return;
         }
         if (!ensureTool(villager, data, runtime)) {
@@ -241,8 +246,29 @@ public final class JobRunner {
         if (!(event.getEntity() instanceof Villager villager) || !WorkerAttachments.isWorker(villager)) {
             return;
         }
+        forgetRuntime(villager);
+        dropCarried(villager, event.getDrops());
+    }
+
+    /** Lightning witches and zombie villagers replace the worker. Death drops do not run, so the carry is dropped here. */
+    public static void onConvert(net.neoforged.neoforge.event.entity.living.LivingConversionEvent.Post event) {
+        if (!(event.getEntity() instanceof Villager villager) || !WorkerAttachments.isWorker(villager)) {
+            return;
+        }
+        forgetRuntime(villager);
+        dropCarried(villager, null);
+    }
+
+    private static void forgetRuntime(Villager villager) {
         RUNTIMES.remove(villager.getUUID());
         WorkerHold.forget(villager.getUUID());
+        if (ModList.get().isLoaded("create")) {
+            CreateBuilder.forget(villager.getUUID());
+        }
+    }
+
+    /** Adds carried stacks, the tool slot, and the held item to {@code into}, or spawns them when {@code into} is null. */
+    private static void dropCarried(Villager villager, Collection<ItemEntity> into) {
         WorkerData carried = WorkerAttachments.get(villager).orElse(null);
         if (carried != null) {
             for (int slot = 0; slot < WorkerData.CARRY_SIZE; slot++) {
@@ -250,19 +276,30 @@ public final class JobRunner {
                 if (carriedStack.isEmpty()) {
                     continue;
                 }
-                event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), carriedStack.copy()));
+                giveDrop(villager, into, carriedStack.copy());
                 carried.setCarry(slot, ItemStack.EMPTY);
             }
         }
-        if (ModList.get().isLoaded("create")) {
-            CreateBuilder.forget(villager.getUUID());
-        }
         ItemStack hand = villager.getMainHandItem();
-        if (!isTool(hand)) {
+        if (hand.isEmpty()) {
             return;
         }
-        event.getDrops().add(new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), hand.copy()));
+        giveDrop(villager, into, hand.copy());
         villager.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+    }
+
+    private static void giveDrop(Villager villager, Collection<ItemEntity> into, ItemStack stack) {
+        if (stack.isEmpty()) {
+            return;
+        }
+        ItemEntity entity = new ItemEntity(villager.level(), villager.getX(), villager.getY(), villager.getZ(), stack);
+        if (into != null) {
+            into.add(entity);
+            return;
+        }
+        if (villager.level() instanceof ServerLevel level) {
+            level.addFreshEntity(entity);
+        }
     }
 
     private static void come(Villager villager, WorkerData data, Runtime runtime) {
@@ -811,16 +848,16 @@ public final class JobRunner {
     private static boolean ensureTool(Villager villager, WorkerData data, Runtime runtime) {
         boolean lumber = data.job() == WorkerJob.LUMBERJACK;
         ItemStack hand = villager.getMainHandItem();
-        if ((lumber ? hand.is(ItemTags.AXES) : hand.is(ItemTags.PICKAXES)) && usable(hand)) {
+        if (jobTool(lumber, hand) && usable(hand)) {
             return true;
         }
         ItemStack slotted = data.carry(WorkerData.TOOL_SLOT);
-        if ((lumber ? slotted.is(ItemTags.AXES) : slotted.is(ItemTags.PICKAXES)) && usable(slotted)) {
+        if (jobTool(lumber, slotted) && usable(slotted)) {
             data.setCarry(WorkerData.TOOL_SLOT, ItemStack.EMPTY);
-            villager.setItemSlot(EquipmentSlot.MAINHAND, slotted);
+            equip(villager, data, slotted.copy());
             return true;
         }
-        returnTool(villager, data);
+        stowHand(villager, data);
         BlockPos chestPos = lumber ? data.lumberjack().toolChest().orElse(null) : data.miner().toolChest().orElse(null);
         if (!(villager.level() instanceof ServerLevel level)) {
             return false;
@@ -832,7 +869,7 @@ public final class JobRunner {
             return false;
         }
         Container chest = openLinked(level, villager, data, chestPos);
-        ItemStack tool = ContainerAccess.takeBest(chest, stack -> lumber ? stack.is(ItemTags.AXES) : stack.is(ItemTags.PICKAXES));
+        ItemStack tool = ContainerAccess.takeBest(chest, stack -> jobTool(lumber, stack));
         if (tool.isEmpty() || !usable(tool)) {
             if (!tool.isEmpty()) {
                 ContainerAccess.insert(chest, tool);
@@ -840,8 +877,57 @@ public final class JobRunner {
             pause(villager, data, runtime, ProblemCode.BROKEN_TOOL, "");
             return false;
         }
-        villager.setItemSlot(EquipmentSlot.MAINHAND, tool);
+        equip(villager, data, tool);
         return true;
+    }
+
+    /** Puts {@code tool} in the hand. Whatever was there is kept in the tool slot, the carry slots, a chest, or the world. */
+    private static void equip(Villager villager, WorkerData data, ItemStack tool) {
+        ItemStack hand = villager.getMainHandItem();
+        villager.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+        if (!hand.isEmpty()) {
+            stow(villager, data, hand.copy());
+        }
+        villager.setItemSlot(EquipmentSlot.MAINHAND, tool);
+    }
+
+    private static void stowHand(Villager villager, WorkerData data) {
+        ItemStack hand = villager.getMainHandItem();
+        if (hand.isEmpty()) {
+            return;
+        }
+        villager.setItemSlot(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
+        stow(villager, data, hand.copy());
+    }
+
+    private static void stow(Villager villager, WorkerData data, ItemStack stack) {
+        if (stack.isEmpty()) {
+            return;
+        }
+        if (isTool(stack) && data.carry(WorkerData.TOOL_SLOT).isEmpty()) {
+            data.setCarry(WorkerData.TOOL_SLOT, stack);
+            return;
+        }
+        ItemStack left = data.insertCarry(stack);
+        if (left.isEmpty()) {
+            return;
+        }
+        if (villager.level() instanceof ServerLevel level) {
+            BlockPos chestPos = data.job() == WorkerJob.MINER
+                    ? data.miner().toolChest().orElse(data.lumberjack().toolChest().orElse(null))
+                    : data.lumberjack().toolChest().orElse(data.miner().toolChest().orElse(null));
+            Container chest = openLinked(level, villager, data, chestPos);
+            if (chest != null) {
+                left = ContainerAccess.insert(chest, left);
+            }
+        }
+        if (!left.isEmpty()) {
+            spawn(villager, left);
+        }
+    }
+
+    private static boolean jobTool(boolean lumber, ItemStack stack) {
+        return lumber ? stack.is(ItemTags.AXES) : stack.is(ItemTags.PICKAXES);
     }
 
     private static boolean destinationReady(ServerLevel level, Villager villager, WorkerData data, Runtime runtime, BlockState state) {

@@ -53,6 +53,7 @@ import net.minecraft.gametest.framework.GameTestInfo;
 import net.minecraft.gametest.framework.GameTestListener;
 import net.minecraft.gametest.framework.GameTestRunner;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.Connection;
 import net.minecraft.network.chat.Component;
@@ -66,7 +67,9 @@ import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.SimpleMenuProvider;
+import net.minecraft.world.Difficulty;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LightningBolt;
 import net.minecraft.world.entity.ai.behavior.EntityTracker;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -78,6 +81,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
@@ -87,6 +91,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.ServerChatEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import net.neoforged.neoforge.network.registration.NetworkRegistry;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
@@ -1621,6 +1626,233 @@ public class AcceptanceGameTests {
             helper.assertTrue(count(level, valuables, Items.DIAMOND) == 0, "valuables chest unused");
             cleanup(owner);
         });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void switchingToMinerKeepsTheAxe(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        Villager villager = villager(helper, 1, 1, 1, "Swap");
+        ServerLevel level = helper.getLevel();
+        WorkerData data = hire(villager, owner);
+        data.setActivity(WorkerActivity.WORKING);
+        data.setRested(true);
+        data.setLastDawnDay(Long.MAX_VALUE);
+        data.setJob(WorkerJob.LUMBERJACK);
+        villager.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.DIAMOND_AXE));
+        data.setCarry(WorkerData.TOOL_SLOT, new ItemStack(Items.DIAMOND_PICKAXE));
+        BlockPos spot = helper.absolutePos(new BlockPos(3, 1, 1));
+        BlockPos regular = barrel(helper, 0, 1, 1);
+        BlockPos valuables = barrel(helper, 0, 1, 2);
+        BlockPos tools = barrel(helper, 0, 1, 3);
+        data.setMiner(miner(MinerMode.CLEAR_BOX, area(level, spot, spot), null, 1, 2, 1, "", 4, 1, 1, 1, false, regular, valuables, tools));
+        data.setJob(WorkerJob.MINER);
+        JobRunner.tick(villager, data);
+        helper.assertTrue(villager.getMainHandItem().is(Items.DIAMOND_PICKAXE), "miner holds the pickaxe");
+        helper.assertTrue(data.carry(WorkerData.TOOL_SLOT).is(Items.DIAMOND_AXE), "axe moved into the tool slot");
+        helper.assertTrue(toolCount(level, villager, data, tools, Items.DIAMOND_AXE) == 1, "the axe was not destroyed");
+        helper.assertTrue(toolCount(level, villager, data, tools, Items.DIAMOND_PICKAXE) == 1, "the pickaxe was not destroyed");
+        done(helper, owner);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void replacingAWornPickaxeKeepsIt(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        Villager villager = villager(helper, 1, 1, 1, "Wear");
+        ServerLevel level = helper.getLevel();
+        ItemStack worn = new ItemStack(Items.DIAMOND_PICKAXE);
+        int wornDamage = worn.getMaxDamage() - 1;
+        worn.setDamageValue(wornDamage);
+        villager.setItemSlot(EquipmentSlot.MAINHAND, worn);
+        BlockPos spot = helper.absolutePos(new BlockPos(3, 1, 1));
+        BlockPos regular = barrel(helper, 0, 1, 1);
+        BlockPos valuables = barrel(helper, 0, 1, 2);
+        BlockPos tools = barrel(helper, 0, 1, 3, new ItemStack(Items.DIAMOND_PICKAXE));
+        WorkerData data = hire(villager, owner);
+        data.setJob(WorkerJob.MINER);
+        data.setActivity(WorkerActivity.WORKING);
+        data.setRested(true);
+        data.setLastDawnDay(Long.MAX_VALUE);
+        data.setMiner(miner(MinerMode.CLEAR_BOX, area(level, spot, spot), null, 1, 2, 1, "", 4, 1, 1, 1, false, regular, valuables, tools));
+        JobRunner.tick(villager, data);
+        ItemStack hand = villager.getMainHandItem();
+        helper.assertTrue(hand.is(Items.DIAMOND_PICKAXE) && hand.getDamageValue() == 0, "fresh pickaxe is in the hand");
+        ItemStack kept = data.carry(WorkerData.TOOL_SLOT);
+        helper.assertTrue(kept.is(Items.DIAMOND_PICKAXE) && kept.getDamageValue() == wornDamage, "worn pickaxe is in the tool slot");
+        helper.assertTrue(toolCount(level, villager, data, tools, Items.DIAMOND_PICKAXE) == 2, "both pickaxes still exist");
+        done(helper, owner);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void conversionDropsTheCarry(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        ServerLevel level = helper.getLevel();
+        Villager villager = villager(helper, 2, 1, 2, "Struck");
+        WorkerData carried = hire(villager, owner);
+        carried.setCarry(0, new ItemStack(Items.EMERALD));
+        carried.setCarry(WorkerData.TOOL_SLOT, new ItemStack(Items.DIAMOND_PICKAXE));
+        villager.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.DIAMOND_AXE));
+        stand(owner, villager);
+        WorkerServer.openMenu(owner, villager, carried);
+        helper.assertTrue(WorkerHold.watching(villager.getUUID()), "menu holds the worker");
+        BlockPos where = villager.blockPosition();
+        Difficulty previous = level.getDifficulty();
+        level.getServer().setDifficulty(Difficulty.NORMAL, false);
+        LightningBolt bolt = EntityType.LIGHTNING_BOLT.create(level);
+        helper.assertTrue(bolt != null, "lightning");
+        bolt.moveTo(villager.position());
+        villager.thunderHit(level, bolt);
+        level.getServer().setDifficulty(previous, false);
+        helper.assertTrue(villager.isRemoved(), "villager converted");
+        helper.assertFalse(WorkerHold.watching(villager.getUUID()), "conversion clears the hold");
+        boolean emerald = false;
+        boolean pick = false;
+        boolean axe = false;
+        for (ItemEntity item : itemsNear(level, where, 8)) {
+            CompoundTag tag = item.saveWithoutId(new CompoundTag());
+            helper.assertFalse(tag.toString().contains("villager_workers:worker"), "drop has worker data");
+            if (item.getItem().is(Items.EMERALD)) {
+                emerald = true;
+            }
+            if (item.getItem().is(Items.DIAMOND_PICKAXE)) {
+                pick = true;
+            }
+            if (item.getItem().is(Items.DIAMOND_AXE)) {
+                axe = true;
+            }
+        }
+        helper.assertTrue(emerald, "carried emerald dropped");
+        helper.assertTrue(pick, "tool slot dropped");
+        helper.assertTrue(axe, "held axe dropped");
+        done(helper, owner);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void unknownCarryItemDoesNotDropTheWorker(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        ServerLevel level = helper.getLevel();
+        Villager shell = villager(helper, 2, 1, 2, "Keep");
+        CompoundTag tag = shell.saveWithoutId(new CompoundTag());
+        CompoundTag worker = new CompoundTag();
+        worker.putString("owner", owner.getUUID().toString());
+        worker.putString("job", "miner");
+        worker.putString("activity", "stopped");
+        ListTag carry = new ListTag();
+        carry.add(itemTag("minecraft:emerald", 2));
+        carry.add(itemTag("villager_workers:not_a_real_item", 1));
+        carry.add(itemTag("minecraft:diamond", 4));
+        worker.put("carry", carry);
+        CompoundTag attachments = new CompoundTag();
+        attachments.put("villager_workers:worker", worker);
+        tag.put("neoforge:attachments", attachments);
+        Villager loaded = EntityType.VILLAGER.create(level);
+        loaded.load(tag);
+        WorkerData data = WorkerAttachments.get(loaded).orElse(null);
+        helper.assertTrue(data != null, "unknown item did not drop the worker");
+        helper.assertTrue(owner.getUUID().equals(data.owner()), "owner");
+        helper.assertTrue(data.job() == WorkerJob.MINER, "job");
+        helper.assertTrue(data.carryCount(Items.EMERALD) == 2, "emerald kept");
+        helper.assertTrue(data.carry(1).isEmpty(), "unknown item became an empty slot");
+        helper.assertTrue(data.carryCount(Items.DIAMOND) == 4, "diamond kept");
+        done(helper, owner);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void menuClosesWhenPermissionIsRevoked(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        RecordingPlayer friend = player(helper);
+        Villager villager = villager(helper, 2, 1, 2, "Gate");
+        WorkerData data = hire(villager, owner);
+        data.addTrusted(new TrustedPlayer(friend.getUUID(), friend.getGameProfile().getName()));
+        stand(friend, villager);
+        openWorker(friend, villager);
+        helper.assertTrue(friend.containerMenu.stillValid(friend), "trusted player may keep the menu");
+        data.removeTrusted(friend.getUUID());
+        helper.assertFalse(friend.containerMenu.stillValid(friend), "revoked trust closes the menu");
+        done(helper, owner, friend);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 300)
+    public static void menuReleasesWhenTheViewerChangesDimension(GameTestHelper helper) {
+        releaseHeldMiner(helper, owner -> {
+            owner.setGameMode(GameType.CREATIVE);
+            ServerLevel destination = owner.server.getLevel(Level.END);
+            if (destination == null) {
+                destination = owner.server.getLevel(Level.NETHER);
+            }
+            if (destination == null) {
+                throw new IllegalStateException("no other dimension is loaded");
+            }
+            owner.teleportTo(destination, 0.5, 80.0, 0.5, 0.0F, 0.0F);
+        });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 300, batch = "serverStop")
+    public static void menuReleasesWhenTheServerStops(GameTestHelper helper) {
+        releaseHeldMiner(helper, owner -> WorkerHold.onServerStopped(new ServerStoppedEvent(owner.server)));
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 80)
+    public static void deathWithTheMenuOpenDropsTheCarry(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        Villager villager = villager(helper, 2, 1, 2, "Open");
+        WorkerData carried = hire(villager, owner);
+        carried.setCarry(0, new ItemStack(Items.EMERALD));
+        carried.setCarry(WorkerData.TOOL_SLOT, new ItemStack(Items.DIAMOND_PICKAXE));
+        villager.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.DIAMOND_AXE));
+        stand(owner, villager);
+        WorkerServer.openMenu(owner, villager, carried);
+        helper.assertTrue(WorkerHold.watching(villager.getUUID()), "menu holds the worker");
+        BlockPos where = villager.blockPosition();
+        villager.kill();
+        helper.succeedWhen(() -> {
+            helper.assertTrue(villager.isRemoved(), "removed after the death animation");
+            helper.assertFalse(WorkerHold.watching(villager.getUUID()), "death clears the hold");
+            boolean axe = false;
+            boolean emerald = false;
+            boolean pick = false;
+            for (ItemEntity item : itemsNear(helper.getLevel(), where, 8)) {
+                if (item.getItem().is(Items.DIAMOND_AXE)) {
+                    axe = true;
+                }
+                if (item.getItem().is(Items.EMERALD)) {
+                    emerald = true;
+                }
+                if (item.getItem().is(Items.DIAMOND_PICKAXE)) {
+                    pick = true;
+                }
+            }
+            helper.assertTrue(axe, "axe dropped");
+            helper.assertTrue(emerald, "carried emerald dropped");
+            helper.assertTrue(pick, "tool slot dropped");
+            cleanup(owner);
+        });
+    }
+
+    private static CompoundTag itemTag(String id, int count) {
+        CompoundTag tag = new CompoundTag();
+        tag.putString("id", id);
+        tag.putInt("count", count);
+        return tag;
+    }
+
+    private static int toolCount(ServerLevel level, Villager villager, WorkerData data, BlockPos chest, Item item) {
+        int total = 0;
+        if (villager.getMainHandItem().is(item)) {
+            total += villager.getMainHandItem().getCount();
+        }
+        total += data.carryCount(item);
+        if (data.carry(WorkerData.TOOL_SLOT).is(item)) {
+            total += data.carry(WorkerData.TOOL_SLOT).getCount();
+        }
+        if (chest != null) {
+            total += count(level, chest, item);
+        }
+        for (ItemEntity entity : itemsNear(level, villager.blockPosition(), 8)) {
+            if (entity.getItem().is(item)) {
+                total += entity.getItem().getCount();
+            }
+        }
+        return total;
     }
 
     private static void releaseHeldMiner(GameTestHelper helper, Consumer<RecordingPlayer> release) {
