@@ -1,3 +1,7 @@
 {
-  "item.villager_workers.area_wand": "Area Wand"
+  "item.villager_workers.area_wand": "Area Wand",
+  "item.villager_workers.hard_hat": "Hard Hat",
+  "item.villager_workers.foreman_hat": "Foreman Hard Hat",
+  "item.villager_workers.clipboard": "Clipboard",
+  "item.villager_workers.blueprint_roll": "Rolled Blueprint"
 }

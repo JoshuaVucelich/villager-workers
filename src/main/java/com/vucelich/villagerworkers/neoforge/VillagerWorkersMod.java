@@ -29,6 +29,7 @@ public final class VillagerWorkersMod {
         modBus.addListener(VillagerWorkersMod::addWandToTools);
         if (FMLEnvironment.dist == Dist.CLIENT) {
             modBus.addListener(ClientModEvents::registerScreens);
+            modBus.addListener(ClientModEvents::registerLayers);
         }
         NeoForge.EVENT_BUS.addListener(WorkerServer::onEntityInteract);
         NeoForge.EVENT_BUS.addListener(EventPriority.LOW, WorkerServer::onRightClickBlock);
@@ -49,6 +50,10 @@ public final class VillagerWorkersMod {
     private static void addWandToTools(BuildCreativeModeTabContentsEvent event) {
         if (event.getTabKey() == CreativeModeTabs.TOOLS_AND_UTILITIES) {
             event.accept(ModItems.AREA_WAND);
+            event.accept(ModItems.HARD_HAT);
+            event.accept(ModItems.FOREMAN_HAT);
+            event.accept(ModItems.CLIPBOARD);
+            event.accept(ModItems.BLUEPRINT_ROLL);
         }
     }
 }

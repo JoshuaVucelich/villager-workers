@@ -40,6 +40,8 @@ public final class MenuIds {
     public static final int TOGGLE_VALUABLES = 87;
     public static final int WHITELIST_HELD = 88;
     public static final int WHITELIST_CLEAR = 89;
+    public static final int PROMOTE = 90;
+    public static final int DEMOTE = 91;
     /** First id of a valuables checkbox. The offset is an index into {@code ValuableCatalog.entries()}. */
     public static final int VALUABLE_BASE = 400;
 

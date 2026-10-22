@@ -2,7 +2,7 @@
 
 Issues to file for Villager Workers. Each one lists the title, scope, and acceptance criteria. The behavior they refer to is specified in [DESIGN.md](DESIGN.md).
 
-M1, M2, and M3 are implemented. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
+M1, M2, M3, and M4 are implemented. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
 
 Order is M1, then M2, then M3. Later issues may persist fields that an earlier issue defined, but they must not start a later milestone's job AI early.
 
@@ -210,3 +210,21 @@ The worker places a Create schematic. It still does not break blocks to do that.
 - A missing item pauses the job with `OUT_OF_MATERIALS`. The worker continues on its own when the item is in a material chest, and Resume does the same.
 - Stopping the worker stops placement. Resume continues the remaining positions.
 - A baby, death, food, and breeding still behave as in M1 while a builder is working.
+
+## M4 - Hard hats and foremen
+
+Hiring a villager shows a yellow hard hat. The owner can promote that worker to a foreman or demote a foreman. A foreman's hat is orange. A foreman also holds a clipboard and carries a rolled blueprint. The rank is saved. The trusted list is still not synced to other players.
+
+### Show a hard hat and a foreman
+
+**Title:** Show a hard hat and let the owner promote a foreman
+
+**Scope:** When a villager is hired, store rank `worker` and sync only that rank so clients can draw gear. Add a yellow hard hat model. Add Promote to Foreman and Demote on the worker screen. A foreman uses an orange hat, a clipboard in the hand, and a rolled blueprint under one arm. Demote returns the yellow hat and removes the clipboard and blueprint. Do not change job AI.
+
+**Acceptance criteria:**
+
+- A new worker's saved rank is `worker`. A save from 0.4.9 with no rank loads as `worker`.
+- Promote sets rank `foreman`. Demote sets it back to `worker`. The change reloads with the world.
+- The screen shows Promote to Foreman on a worker and Demote on a foreman.
+- A player who cannot edit the worker cannot promote or demote, including by menu button.
+- Clients draw the yellow hat for a worker and the orange hat, clipboard, and blueprint for a foreman. Unhired villagers have no hat.

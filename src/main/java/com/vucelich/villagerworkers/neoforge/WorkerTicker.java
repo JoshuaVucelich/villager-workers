@@ -26,6 +26,7 @@ public final class WorkerTicker {
         if (!(villager.level() instanceof ServerLevel level)) {
             return;
         }
+        WorkerAttachments.applyLook(villager, data);
         if (!data.sleepTracked()) {
             data.setSleepTracked(true);
             data.setWasSleeping(villager.isSleeping());

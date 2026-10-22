@@ -13,6 +13,7 @@ import com.vucelich.villagerworkers.common.WorkerActivity;
 import com.vucelich.villagerworkers.common.WorkerData;
 import com.vucelich.villagerworkers.common.WorkerJob;
 import com.vucelich.villagerworkers.common.WorkerPermissions;
+import com.vucelich.villagerworkers.common.WorkerRank;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.AddTrustedPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.PermissionsView;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.Person;
@@ -317,6 +318,24 @@ public final class WorkerServer {
             case MenuIds.WHITELIST_CLEAR -> {
                 data.setBreakWhitelist(List.of());
                 serverPlayer.sendSystemMessage(Component.literal("Extra blocks cleared."));
+            }
+            case MenuIds.PROMOTE -> {
+                if (data.rank() == WorkerRank.FOREMAN) {
+                    serverPlayer.sendSystemMessage(Component.literal("Already a foreman."));
+                } else {
+                    data.setRank(WorkerRank.FOREMAN);
+                    WorkerAttachments.applyLook(villager, data);
+                    serverPlayer.sendSystemMessage(Component.literal(displayName(villager) + " is now a foreman."));
+                }
+            }
+            case MenuIds.DEMOTE -> {
+                if (data.rank() != WorkerRank.FOREMAN) {
+                    serverPlayer.sendSystemMessage(Component.literal("This worker is not a foreman."));
+                } else {
+                    data.setRank(WorkerRank.WORKER);
+                    WorkerAttachments.applyLook(villager, data);
+                    serverPlayer.sendSystemMessage(Component.literal(displayName(villager) + " is a worker again."));
+                }
             }
             default -> {
                 if (id < MenuIds.VALUABLE_BASE) {

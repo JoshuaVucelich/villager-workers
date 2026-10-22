@@ -47,7 +47,8 @@ public record WorkerView(
         String whitelist,
         String schematic,
         String materialChests,
-        boolean useValuables) {
+        boolean useValuables,
+        String rank) {
     public static final StreamCodec<RegistryFriendlyByteBuf, WorkerView> STREAM_CODEC = StreamCodec.of(
             (buf, view) -> view.write(buf),
             WorkerView::read);
@@ -99,7 +100,8 @@ public record WorkerView(
                 builder.materialChests().isEmpty()
                         ? "none"
                         : builder.materialChests().stream().map(WorkerView::pos).collect(Collectors.joining(", ")),
-                miner.useValuables());
+                miner.useValuables(),
+                data.rank().id());
     }
 
     private static String pos(Optional<BlockPos> pos) {
@@ -147,6 +149,7 @@ public record WorkerView(
         buf.writeUtf(schematic);
         buf.writeUtf(materialChests);
         buf.writeBoolean(useValuables);
+        buf.writeUtf(rank);
     }
 
     public static WorkerView read(RegistryFriendlyByteBuf buf) {
@@ -186,6 +189,7 @@ public record WorkerView(
                 buf.readUtf(),
                 buf.readUtf(),
                 buf.readUtf(),
-                buf.readBoolean());
+                buf.readBoolean(),
+                buf.readUtf());
     }
 }

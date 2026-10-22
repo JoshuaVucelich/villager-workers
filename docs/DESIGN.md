@@ -1,6 +1,6 @@
 # Villager Workers design
 
-This document is the approved plan for mod id `villager_workers`. Milestones 1, 2, and 3 are implemented. Milestone issues are in [MILESTONES.md](MILESTONES.md).
+This document is the approved plan for mod id `villager_workers`. Milestones 1, 2, 3, and 4 are implemented. Milestone issues are in [MILESTONES.md](MILESTONES.md).
 
 The target game is Minecraft 1.21.1 on NeoForge 21.1.x, in a pack with Create 6.0.x and Create Aeronautics (`aeronautics`). The mod must still load if Create is absent. There is no leveling system.
 
@@ -26,6 +26,21 @@ A worker is still a `Villager`.
 - Applying a name tag to someone who is already a worker renames them and does not change the owner.
 
 Unhired villagers are unchanged.
+
+## Rank and gear
+
+A hired villager has rank `worker` or `foreman`. Hiring sets `worker`. The owner, or a trusted player who may edit setup, can promote and demote from the worker screen. Rank is saved inside the worker attachment.
+
+Other players need to see the hat, so the rank string is copied to a second attachment, `villager_workers:look`, and that attachment is synced. The trusted list stays on the worker attachment and is not synced.
+
+Gear is drawn on the client. It is not armor and it is not an item in the villager's hand slot.
+
+| Rank | Hat | Hands |
+| --- | --- | --- |
+| Worker | Yellow hard hat | none |
+| Foreman | Orange hard hat | Clipboard in one hand, rolled blueprint under the other arm |
+
+A villager who was never hired has no look attachment and no hat. Death does not copy either attachment. A baby has neither.
 
 ## Hiring
 

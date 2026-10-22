@@ -106,6 +106,8 @@ public final class WorkerData {
             CARRY_FIELD.forGetter(WorkerData::carryForCodec)
     ).apply(instance, WorkerData::fromCodec));
 
+    // Mojang's record codec accepts at most 16 fields. Rank lives inside alerts so older saves still load.
+
     private UUID owner;
     private final List<TrustedPlayer> trusted = new ArrayList<>();
     private WorkerJob job = WorkerJob.NONE;
@@ -119,6 +121,7 @@ public final class WorkerData {
     private BuilderConfig builder = BuilderConfig.defaults();
     private final List<ResourceLocation> breakWhitelist = new ArrayList<>();
     private WorkerProblem problem = WorkerProblem.NONE;
+    private WorkerRank rank = WorkerRank.WORKER;
     private UUID comeTarget;
     private final List<WorkNotice> notices = new ArrayList<>();
     private long hungryNotifiedAt = Long.MIN_VALUE;
@@ -194,6 +197,7 @@ public final class WorkerData {
         data.builder = builder;
         data.breakWhitelist.addAll(breakWhitelist);
         data.problem = problem;
+        data.rank = WorkerRank.byId(alerts.rank());
         data.comeTarget = comeTarget.orElse(null);
         if (alerts.notices() != null) {
             data.notices.addAll(alerts.notices());
@@ -292,28 +296,39 @@ public final class WorkerData {
     }
 
     private AlertBookkeeping alerts() {
-        return new AlertBookkeeping(hungryNotifiedAt, hurtNotifiedAt, hungryPending, hurtPending, List.copyOf(notices));
+        return new AlertBookkeeping(
+                hungryNotifiedAt, hurtNotifiedAt, hungryPending, hurtPending, List.copyOf(notices), rank.id());
     }
 
     /**
-     * Hunger, injury, and work notices, nested so the worker codec stays within Mojang's 16-field record limit.
+     * Hunger, injury, work notices, and rank. Nested so the worker codec stays within Mojang's 16-field record limit.
      */
     public record AlertBookkeeping(
             long hungryNotifiedAt,
             long hurtNotifiedAt,
             boolean hungryPending,
             boolean hurtPending,
-            List<WorkNotice> notices) {
+            List<WorkNotice> notices,
+            String rank) {
         public static final AlertBookkeeping NONE =
-                new AlertBookkeeping(Long.MIN_VALUE, Long.MIN_VALUE, false, false, List.of());
+                new AlertBookkeeping(Long.MIN_VALUE, Long.MIN_VALUE, false, false, List.of(), WorkerRank.WORKER.id());
 
         public static final Codec<AlertBookkeeping> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.LONG.optionalFieldOf("hungry_notified_at", Long.MIN_VALUE).forGetter(AlertBookkeeping::hungryNotifiedAt),
                 Codec.LONG.optionalFieldOf("hurt_notified_at", Long.MIN_VALUE).forGetter(AlertBookkeeping::hurtNotifiedAt),
                 Codec.BOOL.optionalFieldOf("hungry_pending", false).forGetter(AlertBookkeeping::hungryPending),
                 Codec.BOOL.optionalFieldOf("hurt_pending", false).forGetter(AlertBookkeeping::hurtPending),
-                WorkNotice.CODEC.listOf().optionalFieldOf("notices", List.of()).forGetter(AlertBookkeeping::notices)
+                WorkNotice.CODEC.listOf().optionalFieldOf("notices", List.of()).forGetter(AlertBookkeeping::notices),
+                Codec.STRING.optionalFieldOf("rank", WorkerRank.WORKER.id()).forGetter(AlertBookkeeping::rank)
         ).apply(instance, AlertBookkeeping::new));
+    }
+
+    public WorkerRank rank() {
+        return rank == null ? WorkerRank.WORKER : rank;
+    }
+
+    public void setRank(WorkerRank rank) {
+        this.rank = rank == null ? WorkerRank.WORKER : rank;
     }
 
     public UUID owner() {

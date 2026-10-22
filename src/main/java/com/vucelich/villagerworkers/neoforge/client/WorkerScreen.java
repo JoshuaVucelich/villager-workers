@@ -81,6 +81,12 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         addRenderableWidget(action("Start", "Begin the selected job.", x, y, 54, MenuIds.START));
         addRenderableWidget(action("Stop", "Stop and stay stopped until you start again.", x + 56, y, 54, MenuIds.STOP));
         addRenderableWidget(action("Come", "Walk to you, then wait.", x + 112, y, 54, MenuIds.COME));
+        WorkerView view = this.menu.view();
+        if ("foreman".equals(view.rank())) {
+            addRenderableWidget(action("Demote", "This foreman becomes a worker again. The orange hat comes off.", x + 168, y, 70, MenuIds.DEMOTE));
+        } else {
+            addRenderableWidget(action("Promote to Foreman", "Orange hard hat, a clipboard, and a rolled blueprint.", x + 168, y, 90, MenuIds.PROMOTE));
+        }
     }
 
     private void initArea(WorkerView view, int x, int y) {
@@ -312,8 +318,10 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         graphics.drawString(this.font, rested, activityX + this.font.width(view.activity()) + 6, 16, view.rested() ? 0x55FF55 : 0xFFAA55, false);
         String problem = view.problem();
         int problemColor = "No problems.".equals(problem) ? 0x55FF55 : 0xFF5555;
-        graphics.drawString(this.font, "Job " + view.job(), 8, 26, 0xDDDDDD, false);
-        graphics.drawString(this.font, problem, 8 + this.font.width("Job " + view.job() + "  "), 26, problemColor, false);
+        String rank = "foreman".equals(view.rank()) ? "Foreman" : "Worker";
+        String title = rank + "  Job " + view.job();
+        graphics.drawString(this.font, title, 8, 26, "foreman".equals(view.rank()) ? 0xFFB347 : 0xFFE066, false);
+        graphics.drawString(this.font, problem, 8 + this.font.width(title + "  "), 26, problemColor, false);
     }
 
     private static String detail(WorkerView view) {
