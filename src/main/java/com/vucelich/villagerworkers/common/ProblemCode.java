@@ -13,7 +13,8 @@ public enum ProblemCode {
     CHEST_FULL,
     STUCK,
     BLOCKED,
-    SHIP_GUARD;
+    SHIP_GUARD,
+    NEED_SCAFFOLD;
 
     public String id() {
         return name().toLowerCase(Locale.ROOT);

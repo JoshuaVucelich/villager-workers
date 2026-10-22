@@ -11,6 +11,8 @@ import com.vucelich.villagerworkers.common.ActionPace;
 import com.vucelich.villagerworkers.common.BuilderConfig;
 import com.vucelich.villagerworkers.common.LumberjackConfig;
 import com.vucelich.villagerworkers.common.SchematicPiece;
+import com.vucelich.villagerworkers.common.StructurePlan;
+import com.vucelich.villagerworkers.common.WorkerRank;
 import com.vucelich.villagerworkers.common.MinerConfig;
 import com.vucelich.villagerworkers.common.MinerMode;
 import com.vucelich.villagerworkers.common.ProblemCode;
@@ -2156,6 +2158,183 @@ public class AcceptanceGameTests {
             helper.assertTrue(level.getBlockState(origin.offset(1, 1, 1)).is(Blocks.COBBLESTONE), "top cell");
             done(helper, owner);
         });
+    }
+
+    @GameTest(template = "yard", timeoutTicks = 4000)
+    public static void crewOfTenBuildsFifteenCube(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        ServerLevel level = helper.getLevel();
+        int savedInterval = WorkerSettings.buildIntervalTicks();
+        WorkerSettings.BUILD_INTERVAL_TICKS.set(0);
+        Scaffolding.resetPlaced();
+        StructureBuilder.startTiming(40);
+        BlockPos origin = helper.absolutePos(new BlockPos(2, 1, 2));
+        BlockPos marker = helper.absolutePos(new BlockPos(19, 1, 19));
+        level.setBlockAndUpdate(marker, Blocks.GOLD_BLOCK.defaultBlockState());
+        String file = saveShell(level, origin);
+        BlockPos cobbleChest = barrel(helper, 0, 1, 0);
+        BlockPos scaffoldChest = barrel(helper, 0, 1, 1);
+        fill(level, cobbleChest, Items.COBBLESTONE);
+        fill(level, scaffoldChest, Items.SCAFFOLDING);
+        int scaffoldStart = count(level, cobbleChest, Items.SCAFFOLDING) + count(level, scaffoldChest, Items.SCAFFOLDING);
+        BlockState[] outside = new BlockState[20 * 18 * 20];
+        for (int y = 0; y < 18; y++) {
+            for (int z = 0; z < 20; z++) {
+                for (int x = 0; x < 20; x++) {
+                    if (!inFootprint(x, y, z)) {
+                        outside[yardIndex(x, y, z)] = level.getBlockState(helper.absolutePos(new BlockPos(x, y, z)));
+                    }
+                }
+            }
+        }
+        Villager boss = villager(helper, 18, 1, 1, "Foreman");
+        boss.noPhysics = true;
+        WorkerData bossData = hire(boss, owner);
+        bossData.setRank(WorkerRank.FOREMAN);
+        bossData.setScaffoldOrder("vanilla,spare");
+        int[][] bands = StructurePlan.bands(0, 14, 10);
+        List<Villager> crew = new ArrayList<>();
+        List<WorkerData> crewData = new ArrayList<>();
+        List<SchematicPiece> pieces = List.of(new SchematicPiece(file, 0, 0, 0));
+        for (int i = 0; i < 10; i++) {
+            Villager member = villager(helper, 1, 1, 1 + i * 2, "Crew" + i);
+            member.noPhysics = true;
+            WorkerData data = hire(member, owner);
+            data.setForeman(boss.getUUID());
+            data.setScaffoldOrder("spare");
+            data.setRulesOverride(false);
+            data.setJob(WorkerJob.BUILDER);
+            data.setActivity(WorkerActivity.WORKING);
+            data.setRested(true);
+            data.setBuilder(BuilderConfig.defaults()
+                    .withStructureOrigin(Optional.of(origin))
+                    .withPieces(pieces)
+                    .withMaterialChest(cobbleChest)
+                    .withMaterialChest(scaffoldChest)
+                    .withLayers(bands[i][0], bands[i][1]));
+            crew.add(member);
+            crewData.add(data);
+        }
+        helper.succeedWhen(() -> {
+            StringBuilder status = new StringBuilder();
+            boolean finished = true;
+            for (int i = 0; i < crewData.size(); i++) {
+                WorkerData data = crewData.get(i);
+                if (data.activity() != WorkerActivity.STOPPED || data.problem().code() != ProblemCode.NONE) {
+                    finished = false;
+                    status.append(i)
+                            .append(':')
+                            .append(data.activity())
+                            .append(':')
+                            .append(data.problem())
+                            .append(' ');
+                }
+            }
+            helper.assertTrue(finished, status.toString());
+            try {
+                for (int y = 0; y < 18; y++) {
+                    for (int z = 0; z < 20; z++) {
+                        for (int x = 0; x < 20; x++) {
+                            BlockState state = level.getBlockState(helper.absolutePos(new BlockPos(x, y, z)));
+                            helper.assertFalse(isScaffold(state), "scaffold left at " + x + " " + y + " " + z);
+                            if (inFootprint(x, y, z)) {
+                                boolean want = shell(x - 2, y - 1, z - 2);
+                                helper.assertTrue(
+                                        want ? state.is(Blocks.COBBLESTONE) : state.isAir(),
+                                        "cell " + x + " " + y + " " + z + " is " + state.getBlock());
+                            } else {
+                                helper.assertTrue(
+                                        state.equals(outside[yardIndex(x, y, z)]),
+                                        "outside " + x + " " + y + " " + z + " is " + state.getBlock());
+                            }
+                        }
+                    }
+                }
+                int carried = 0;
+                for (WorkerData data : crewData) {
+                    carried += data.carryCount(Items.SCAFFOLDING);
+                }
+                carried += bossData.carryCount(Items.SCAFFOLDING);
+                int stored = count(level, cobbleChest, Items.SCAFFOLDING) + count(level, scaffoldChest, Items.SCAFFOLDING);
+                int dropped = 0;
+                for (ItemEntity entity : itemsNear(level, origin, 24)) {
+                    if (entity.getItem().is(Items.SCAFFOLDING)) {
+                        dropped += entity.getItem().getCount();
+                    }
+                }
+                helper.assertTrue(Scaffolding.scaffoldingPlaced() > 0, "crew never placed scaffolding");
+                helper.assertTrue(carried == 0, "scaffolding still in inventory " + carried);
+                helper.assertTrue(dropped == 0, "scaffolding dropped " + dropped);
+                helper.assertTrue(stored == scaffoldStart, "scaffolding stored " + stored + " of " + scaffoldStart);
+                StructureBuilder.stopTiming();
+                double millis = StructureBuilder.averageMillisForTen();
+                int samples = StructureBuilder.timingSamples();
+                VillagerWorkersMod.LOGGER.info(
+                        "10 structure builders average {} ms over {} samples", millis, samples);
+                helper.assertTrue(samples > 50, "timing samples " + samples);
+                helper.assertTrue(millis <= 0.5, "10 builders " + millis + " ms over " + samples + " samples");
+                cleanup(owner);
+            } finally {
+                WorkerSettings.BUILD_INTERVAL_TICKS.set(savedInterval);
+                StructureBuilder.stopTiming();
+            }
+        });
+    }
+
+    private static String saveShell(ServerLevel level, BlockPos origin) {
+        for (int y = 0; y < 15; y++) {
+            for (int z = 0; z < 15; z++) {
+                for (int x = 0; x < 15; x++) {
+                    if (shell(x, y, z)) {
+                        level.setBlockAndUpdate(origin.offset(x, y, z), Blocks.COBBLESTONE.defaultBlockState());
+                    }
+                }
+            }
+        }
+        String file = "crew" + System.nanoTime() + ".nbt";
+        try {
+            StructureTemplate template = new StructureTemplate();
+            template.fillFromWorld(level, origin, new BlockPos(15, 15, 15), false, Blocks.AIR);
+            java.nio.file.Path dir = StructureFiles.directory(level.getServer());
+            Files.createDirectories(dir);
+            NbtIo.writeCompressed(template.save(new CompoundTag()), dir.resolve(file));
+        } catch (IOException exception) {
+            throw new IllegalStateException(exception);
+        }
+        for (int y = 0; y < 15; y++) {
+            for (int z = 0; z < 15; z++) {
+                for (int x = 0; x < 15; x++) {
+                    if (shell(x, y, z)) {
+                        level.setBlockAndUpdate(origin.offset(x, y, z), Blocks.AIR.defaultBlockState());
+                    }
+                }
+            }
+        }
+        return file;
+    }
+
+    /** Local 0..14 shell: floor, ceiling, walls, and a 5x5 overhang on the middle layer. */
+    private static boolean shell(int x, int y, int z) {
+        if (y == 0 || y == 14) {
+            return true;
+        }
+        if (x == 0 || x == 14 || z == 0 || z == 14) {
+            return true;
+        }
+        return y == 8 && x >= 5 && x <= 9 && z >= 5 && z <= 9;
+    }
+
+    private static boolean inFootprint(int x, int y, int z) {
+        return x >= 2 && x <= 16 && y >= 1 && y <= 15 && z >= 2 && z <= 16;
+    }
+
+    private static int yardIndex(int x, int y, int z) {
+        return (y * 20 + z) * 20 + x;
+    }
+
+    private static boolean isScaffold(BlockState state) {
+        String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+        return id.equals("minecraft:scaffolding") || id.equals("create:andesite_scaffolding");
     }
 
     private static String fillAndSaveBox(ServerLevel level, BlockPos origin) {

@@ -34,12 +34,16 @@ import net.neoforged.neoforge.event.EventHooks;
 
 /**
  * Places a gzipped vanilla structure from linked chests and the worker inventory.
- * One placement per tick by default. Out of reach cells wait. Scaffolding is a later step.
+ * One placement per tick by default. Out of reach cells get a temporary block, removed when the job stops.
  * Aeronautics ships saved unassembled are ordinary blocks in the structure, so they place the same way.
  */
 public final class StructureBuilder {
     private static final Map<UUID, Session> SESSIONS = new ConcurrentHashMap<>();
     private static final int RECHECK_TICKS = 100;
+    private static boolean timing;
+    private static int warmupLeft;
+    private static long nanos;
+    private static int samples;
 
     private static final class Session {
         String key = "";
@@ -64,12 +68,39 @@ public final class StructureBuilder {
 
     public static void forget(UUID villagerId) {
         SESSIONS.remove(villagerId);
+        Scaffolding.forget(villagerId);
     }
 
     public static void clear() {
         SESSIONS.clear();
         StructureLibrary.clear();
         StructureMaterials.clear();
+        Scaffolding.clear();
+        timing = false;
+    }
+
+    /** Times working structure ticks. The first {@code warmup} samples are discarded. */
+    public static void startTiming(int warmup) {
+        timing = true;
+        warmupLeft = Math.max(0, warmup);
+        nanos = 0L;
+        samples = 0;
+    }
+
+    public static void stopTiming() {
+        timing = false;
+    }
+
+    public static int timingSamples() {
+        return samples;
+    }
+
+    /** Average milliseconds for ten working ticks, from the samples taken so far. */
+    public static double averageMillisForTen() {
+        if (samples <= 0) {
+            return 0.0;
+        }
+        return (nanos / (double) samples) * 10.0 / 1_000_000.0;
     }
 
     static void freezeWhileHeld(UUID villagerId) {
@@ -92,6 +123,23 @@ public final class StructureBuilder {
         if (!(villager.level() instanceof ServerLevel level)) {
             return;
         }
+        boolean sample = timing && data.activity() == WorkerActivity.WORKING;
+        long started = sample ? System.nanoTime() : 0L;
+        try {
+            tickLevel(level, villager, data);
+        } finally {
+            if (sample) {
+                if (warmupLeft > 0) {
+                    warmupLeft--;
+                } else {
+                    nanos += System.nanoTime() - started;
+                    samples++;
+                }
+            }
+        }
+    }
+
+    private static void tickLevel(ServerLevel level, Villager villager, WorkerData data) {
         Session session = SESSIONS.computeIfAbsent(villager.getUUID(), id -> new Session());
         if (data.activity() == WorkerActivity.STOPPED && data.problem().code() == ProblemCode.OUT_OF_MATERIALS) {
             recheck(level, villager, data, session);
@@ -134,6 +182,7 @@ public final class StructureBuilder {
         if (session.cursor >= session.cells.size()) {
             session.walkTo = null;
             villager.getNavigation().stop();
+            Scaffolding.finish(level, villager, data, chests(level, data, owner(villager, data)));
             data.setActivity(WorkerActivity.STOPPED);
             clearSolved(data);
             return;
@@ -225,12 +274,18 @@ public final class StructureBuilder {
         ServerPlayer owner = owner(villager, data);
         List<Container> chests = chests(level, data, owner);
         boolean hasMaterials = hasAll(chests, data, need.consume());
-        PlacementRules.Choice choice = PlacementRules.choose(world.equals(wanted), wanted.isAir(), world.canBeReplaced(), hasMaterials);
+        boolean replaceable = world.canBeReplaced() || Scaffolding.isPost(target);
+        PlacementRules.Choice choice = PlacementRules.choose(world.equals(wanted), wanted.isAir(), replaceable, hasMaterials);
         if (choice == PlacementRules.Choice.PLACE && AssemblyGuards.occupied(level, target)) {
             choice = PlacementRules.Choice.BLOCKED;
         }
         return switch (choice) {
-            case SKIP -> Step.CONTINUE;
+            case SKIP -> {
+                if (world.equals(wanted) && Scaffolding.isPost(target)) {
+                    Scaffolding.claim(target);
+                }
+                yield Step.CONTINUE;
+            }
             case BLOCKED -> {
                 OwnerNotices.report(villager, data, ProblemCode.BLOCKED, target.getX() + " " + target.getY() + " " + target.getZ());
                 yield Step.CONTINUE;
@@ -256,10 +311,10 @@ public final class StructureBuilder {
                 }
                 if (!inReach(villager, target)) {
                     session.walkTo = target.immutable();
-                    walk(villager, session.walkTo);
-                    stuck(level, villager, data, session);
+                    Scaffolding.advance(level, villager, data, target, chests);
                     yield Step.HOLD;
                 }
+                Scaffolding.liftAt(level, target, chests, villager);
                 yield place(level, villager, data, session, chests, need.consume(), target, wanted, cell.nbt());
             }
         };
@@ -534,6 +589,9 @@ public final class StructureBuilder {
         data.setActivity(WorkerActivity.STOPPED);
         data.setProblem(new WorkerProblem(code, subject == null ? "" : subject));
         villager.getNavigation().stop();
+        if (villager.level() instanceof ServerLevel level) {
+            Scaffolding.finish(level, villager, data, chests(level, data, owner(villager, data)));
+        }
         if (session.told) {
             return;
         }

@@ -10,6 +10,7 @@ public final class WorkerSettings {
     static final ModConfigSpec.IntValue BUILD_SCAN_BUDGET;
     static final ModConfigSpec.IntValue BUILD_INTERVAL_TICKS;
     static final ModConfigSpec.IntValue CREATE_SCHEMATIC_UPLOAD_KB;
+    static final ModConfigSpec.IntValue SCAFFOLD_SEARCH_BUDGET;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -29,6 +30,9 @@ public final class WorkerSettings {
         CREATE_SCHEMATIC_UPLOAD_KB = builder
                 .comment("Create schematic upload limit in KB. 256 leaves Create's maxTotalSchematicSize alone. Higher raises it, and the packet cap up to 32767 bytes, when Create is installed.")
                 .defineInRange("createSchematicUploadKb", 256, 256, 8192);
+        SCAFFOLD_SEARCH_BUDGET = builder
+                .comment("Positions a builder may consider in one tick when choosing the next scaffolding block. Ships are not scanned.")
+                .defineInRange("scaffoldSearchBudget", 8, 1, 32);
         SPEC = builder.build();
     }
 
@@ -52,5 +56,9 @@ public final class WorkerSettings {
 
     public static int createSchematicUploadKb() {
         return CREATE_SCHEMATIC_UPLOAD_KB.get();
+    }
+
+    public static int scaffoldSearchBudget() {
+        return SCAFFOLD_SEARCH_BUDGET.get();
     }
 }

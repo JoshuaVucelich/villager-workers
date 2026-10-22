@@ -254,3 +254,7 @@ A break still uses the same safety checks. The items from that break are inserte
 ## Structure schematics
 
 A builder places gzipped vanilla structure files from `villager_workers/schematics`, bottom layer first, pulling materials from linked chests and then its inventory. Several numbered pieces with offsets make one build. Create's item requirement is used when Create is present. A config value above 256 KB raises Create's schematic upload limit. Build now is creative only. A foreman can split the layers across the crew. The Create schematicannon path still works when no structure file is linked.
+
+## Scaffolding
+
+When a builder cannot reach the next cell, it places one temporary block and steps up. The crew rule chooses the block: andesite scaffolding, then vanilla scaffolding, then a spare block that is not valuable and does not fall. Plain blocks uses spare blocks even when scaffolding is in the chest. If none of those are available, the worker stops and tells the owner it needs scaffolding or spare blocks. Temporary blocks are removed when the job finishes or stops, and the items go back to storage. The player's blocks are not broken. `scaffoldSearchBudget` (default 8) limits the slot scan. Ships are not ticked.

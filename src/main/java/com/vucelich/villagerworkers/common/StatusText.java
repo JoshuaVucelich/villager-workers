@@ -68,6 +68,7 @@ public final class StatusText {
             case STUCK -> "[" + who + "] is stuck.";
             case BLOCKED -> "[" + who + "] is blocked at " + item + ".";
             case SHIP_GUARD -> "[" + who + "] will not dig because the ship check failed.";
+            case NEED_SCAFFOLD -> "[" + who + "] needs scaffolding or spare blocks.";
             case NONE -> "[" + who + "] has no problem.";
         };
     }
@@ -96,6 +97,7 @@ public final class StatusText {
             case CHEST_FULL -> "chest full";
             case STUCK -> "stuck";
             case SHIP_GUARD -> "ship check failed";
+            case NEED_SCAFFOLD -> "needs scaffolding or spare blocks";
             default -> work.code().id().replace('_', ' ');
         };
     }

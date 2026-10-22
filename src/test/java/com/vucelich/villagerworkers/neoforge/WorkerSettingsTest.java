@@ -17,5 +17,6 @@ class WorkerSettingsTest {
         assertEquals(64, WorkerSettings.BUILD_SCAN_BUDGET.getDefault());
         assertEquals(-1, WorkerSettings.BUILD_INTERVAL_TICKS.getDefault());
         assertEquals(256, WorkerSettings.CREATE_SCHEMATIC_UPLOAD_KB.getDefault());
+        assertEquals(8, WorkerSettings.SCAFFOLD_SEARCH_BUDGET.getDefault());
     }
 }

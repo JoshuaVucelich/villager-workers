@@ -91,7 +91,9 @@ public final class StructureLibrary {
                 if (Files.size(path) > maxBytes) {
                     return new Loaded(key, List.of(), 0, 0, piece.file() + " is larger than the schematic limit.");
                 }
-                CompoundTag tag = NbtIo.readCompressed(path, NbtAccounter.create(maxBytes));
+                // The file cap is compressed bytes. Tag accounting is larger, so allow a modest expansion.
+                long quota = Math.min(maxBytes * 8L, 32L * 1024L * 1024L);
+                CompoundTag tag = NbtIo.readCompressed(path, NbtAccounter.create(quota));
                 StructureTemplate template = new StructureTemplate();
                 template.load(level.registryAccess().lookupOrThrow(Registries.BLOCK), tag);
                 for (StructureBlockInfo info : allBlocks(template)) {
@@ -102,6 +104,7 @@ public final class StructureLibrary {
                 }
             }
         } catch (Exception ex) {
+            VillagerWorkersMod.LOGGER.warn("Could not read schematic {}: {}", key, ex.toString());
             return new Loaded(key, List.of(), 0, 0, "Could not read that schematic.");
         }
         if (blocks.isEmpty()) {

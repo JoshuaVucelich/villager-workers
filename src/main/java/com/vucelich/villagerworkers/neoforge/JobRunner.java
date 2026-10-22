@@ -288,6 +288,12 @@ public final class JobRunner {
     private static void forgetRuntime(Villager villager) {
         RUNTIMES.remove(villager.getUUID());
         WorkerHold.forget(villager.getUUID());
+        if (villager.level() instanceof ServerLevel level && level.isLoaded(villager.blockPosition())) {
+            WorkerData data = WorkerAttachments.get(villager).orElse(null);
+            if (data != null) {
+                Scaffolding.finish(level, villager, data, List.of());
+            }
+        }
         StructureBuilder.forget(villager.getUUID());
         if (ModList.get().isLoaded("create")) {
             CreateBuilder.forget(villager.getUUID());

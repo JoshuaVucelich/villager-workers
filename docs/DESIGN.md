@@ -48,7 +48,7 @@ A worker may store the UUID of one foreman. A foreman is not a member of a crew.
 
 For each crew member the foreman screen can unassign them, move them to another foreman, call them, or hand sole ownership to an online player in the same dimension. Come, stay, and work each have three targets: the foreman only, the foreman plus the whole crew, or the ticked members. A ticked id that is not on that crew is ignored.
 
-Scaffold preference is a saved order (`andesite`, `vanilla`, `spare`) plus a plain-blocks flag. The default order is andesite scaffolding, then vanilla scaffolding, then spare blocks. Changing it on the foreman copies it onto every loaded crew member whose own-rules flag is off. A member with own rules on keeps their order. Placement of scaffolding is a later milestone. This milestone only stores and copies the rule.
+Scaffold preference is a saved order (`andesite`, `vanilla`, `spare`) plus a plain-blocks flag. The default order is andesite scaffolding, then vanilla scaffolding, then spare blocks. Changing it on the foreman copies it onto every loaded crew member whose own-rules flag is off. A member with own rules on keeps their order. While a member is working, the foreman's current order is what they use, unless that member has own rules on.
 
 ## Hiring
 
@@ -344,11 +344,13 @@ The player places a Create schematicannon and loads a schematic into it, then li
 
 A builder can also place gzipped vanilla structure files, the same NBT `StructureTemplate.load` reads. Put the files in the world folder `villager_workers/schematics`. A written book, or a book and quill, lists one piece per line as `file.nbt dx dy dz`. Mark origin with the area wand. Pieces are numbered parts of one build, each with its own offset, so a huge build can be split the way a 3D printer splits a model. The worker places the lowest layer first and keeps block entity data when that data has no items, book, record, or loot table. Materials come from the linked chests, then the worker inventory. Missing materials are told to every online owner. When Create is installed, item counts use Create's `ItemRequirement`, and only consumed items are taken. Aeronautics ships saved unassembled are ordinary blocks in that file, so they build the same way. The cannon path is unchanged and is used only when no structure file is linked.
 
-`buildPlacementsPerTick` (default 1), `buildScanBudget` (default 64), and `buildIntervalTicks` (default -1, which uses the normal work pace) cap the cost. `createSchematicUploadKb` defaults to 256 and does not change Create. A higher value raises Create's `maxTotalSchematicSize`, and `maxSchematicPacketSize` up to its 32767 byte cap, through the public config object. No mixin.
+`buildPlacementsPerTick` (default 1), `buildScanBudget` (default 64), and `buildIntervalTicks` (default -1, which uses the normal work pace) cap the cost. `scaffoldSearchBudget` (default 8) caps how many non-empty slots a builder inspects when picking the next temporary block. `createSchematicUploadKb` defaults to 256 and does not change Create. A higher value raises Create's `maxTotalSchematicSize`, and `maxSchematicPacketSize` up to its 32767 byte cap, through the public config object. No mixin. A structure file is rejected when its compressed size is over that cap. Tag accounting may use up to eight times the cap, and never more than 32 MB.
 
 Build now places the whole assigned schematic in one action. The server allows it only when the player is in creative mode and has instabuild. Survival, adventure, and spectator place nothing.
 
 A foreman with a structure file can split layers across the crew. Each member becomes a builder with the same pieces, origin, and chests, and a y band of their own.
+
+When the next cell is out of reach, the builder places one temporary block and steps onto it. The block comes from the crew rule: Create andesite scaffolding when Create is installed and the item is in a material chest, then vanilla scaffolding, then a spare block that is not valuable and does not fall. Plain blocks skips both scaffolding items and uses spare blocks only. A scaffolding piece that would be seven steps from support is not placed, so it cannot fall into the build. The spare block is a pillar or a single step, not a stair item. Each temporary block remembers the state it replaced. The builder puts that state back when the job finishes or stops, and the item goes to a material chest, then the inventory, then the ground. A temporary block sitting where the schematic wants a real block is lifted first and the item is returned. Blocks the builder did not place are left alone. The ship check runs only for the one block about to be placed.
 
 Confirm Create 6.0's schematic holder API at the start of M3 (`SchematicannonBlockEntity` and the schematic type in `com.simibubi.create.content.schematics`) before writing the adapter. The adapter lives in the NeoForge package because it has to call Create. The placement rules stay in `common`.
 
@@ -359,7 +361,7 @@ Placement, bottom to top:
 - If the position is a solid block that does not match, skip it, record `BLOCKED`, and continue. The builder never breaks blocks, so a Create machine already in the footprint stays in place.
 - If an item is missing, pause with `OUT_OF_MATERIALS` and check the chests again every 5 seconds. Resume also clears the pause when the item is present.
 
-The builder still obeys the volume rule: it only places inside the schematic bounds, in the anchor's dimension.
+The finished build only changes blocks inside the schematic bounds, in the anchor's dimension. Temporary blocks outside that footprint are put back before the job stops.
 
 ## Villager behavior that must keep working
 
