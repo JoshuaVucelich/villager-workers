@@ -282,7 +282,7 @@ public final class StructureBuilder {
         return switch (choice) {
             case SKIP -> {
                 if (world.equals(wanted) && Scaffolding.isPost(target)) {
-                    Scaffolding.claim(target);
+                    Scaffolding.claim(level, target);
                 }
                 yield Step.CONTINUE;
             }

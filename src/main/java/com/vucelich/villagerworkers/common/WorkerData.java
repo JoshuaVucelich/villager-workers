@@ -168,6 +168,8 @@ public final class WorkerData {
     /** Comma-separated scaffold kinds. Empty means the default order. */
     private String scaffoldOrder = "";
     private boolean plainBlocks;
+    /** Temporary blocks still standing. Saved so a restart removes only these. */
+    private final List<ScaffoldPost> scaffoldPosts = new ArrayList<>();
     private UUID comeTarget;
     private final List<WorkNotice> notices = new ArrayList<>();
     private long hungryNotifiedAt = Long.MIN_VALUE;
@@ -248,6 +250,9 @@ public final class WorkerData {
         data.rulesOverride = alerts.rulesOverride();
         data.scaffoldOrder = alerts.scaffoldOrder() == null ? "" : alerts.scaffoldOrder();
         data.plainBlocks = alerts.plainBlocks();
+        if (alerts.scaffoldPosts() != null) {
+            data.scaffoldPosts.addAll(alerts.scaffoldPosts());
+        }
         data.comeTarget = comeTarget.orElse(null);
         if (alerts.notices() != null) {
             data.notices.addAll(alerts.notices());
@@ -356,11 +361,13 @@ public final class WorkerData {
                 Optional.ofNullable(foreman),
                 rulesOverride,
                 scaffoldOrder,
-                plainBlocks);
+                plainBlocks,
+                List.copyOf(scaffoldPosts));
     }
 
     /**
-     * Hunger, injury, work notices, rank, and crew. Nested so the worker codec stays within Mojang's 16-field record limit.
+     * Hunger, injury, work notices, rank, crew, and temporary blocks.
+     * Nested so the worker codec stays within Mojang's 16-field record limit.
      */
     public record AlertBookkeeping(
             long hungryNotifiedAt,
@@ -372,7 +379,8 @@ public final class WorkerData {
             Optional<UUID> foreman,
             boolean rulesOverride,
             String scaffoldOrder,
-            boolean plainBlocks) {
+            boolean plainBlocks,
+            List<ScaffoldPost> scaffoldPosts) {
         public static final AlertBookkeeping NONE = new AlertBookkeeping(
                 Long.MIN_VALUE,
                 Long.MIN_VALUE,
@@ -383,7 +391,8 @@ public final class WorkerData {
                 Optional.empty(),
                 false,
                 "",
-                false);
+                false,
+                List.of());
 
         public static final Codec<AlertBookkeeping> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.LONG.optionalFieldOf("hungry_notified_at", Long.MIN_VALUE).forGetter(AlertBookkeeping::hungryNotifiedAt),
@@ -395,8 +404,20 @@ public final class WorkerData {
                 UUIDUtil.STRING_CODEC.optionalFieldOf("foreman").forGetter(AlertBookkeeping::foreman),
                 Codec.BOOL.optionalFieldOf("rules_override", false).forGetter(AlertBookkeeping::rulesOverride),
                 Codec.STRING.optionalFieldOf("scaffold_order", "").forGetter(AlertBookkeeping::scaffoldOrder),
-                Codec.BOOL.optionalFieldOf("plain_blocks", false).forGetter(AlertBookkeeping::plainBlocks)
+                Codec.BOOL.optionalFieldOf("plain_blocks", false).forGetter(AlertBookkeeping::plainBlocks),
+                ScaffoldPost.CODEC.listOf().optionalFieldOf("scaffold_posts", List.of()).forGetter(AlertBookkeeping::scaffoldPosts)
         ).apply(instance, AlertBookkeeping::new));
+    }
+
+    public List<ScaffoldPost> scaffoldPosts() {
+        return List.copyOf(scaffoldPosts);
+    }
+
+    public void setScaffoldPosts(List<ScaffoldPost> posts) {
+        scaffoldPosts.clear();
+        if (posts != null) {
+            scaffoldPosts.addAll(posts);
+        }
     }
 
     public WorkerRank rank() {

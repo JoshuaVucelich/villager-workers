@@ -45,6 +45,7 @@ public final class VillagerWorkersMod {
         NeoForge.EVENT_BUS.addListener(WorkerServer::onChat);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onLogout);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onLeaveLevel);
+        NeoForge.EVENT_BUS.addListener(VillagerWorkersMod::onEntityJoin);
         WorkerData.setCarryDecodeWarning(detail ->
                 LOGGER.warn("Could not decode a carry item for a worker; that slot was cleared: {}", detail));
         NeoForge.EVENT_BUS.addListener(JobRunner::onDeath);
@@ -55,6 +56,15 @@ public final class VillagerWorkersMod {
         NeoForge.EVENT_BUS.addListener(WorkerHold::onServerStopped);
         LOGGER.info("Villager Workers ({}) loaded", VillagerWorkers.MOD_ID);
         logJarSha();
+    }
+
+    private static void onEntityJoin(net.neoforged.neoforge.event.entity.EntityJoinLevelEvent event) {
+        if (event.getLevel().isClientSide()) {
+            return;
+        }
+        if (event.getEntity() instanceof net.minecraft.world.entity.npc.Villager villager) {
+            WorkerAttachments.get(villager).ifPresent(data -> Scaffolding.bind(villager, data));
+        }
     }
 
     private static void onServerStarted(net.neoforged.neoforge.event.server.ServerStartedEvent event) {

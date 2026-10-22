@@ -5,6 +5,10 @@ import com.vucelich.villagerworkers.common.StatusText;
 import com.vucelich.villagerworkers.common.WorkerActivity;
 import com.vucelich.villagerworkers.common.WorkerData;
 import com.vucelich.villagerworkers.common.WorkerProblem;
+import java.util.Collection;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.network.chat.Component;
@@ -19,13 +23,49 @@ import net.minecraft.world.item.Items;
 
 public final class WorkerTicker {
     public static final long PROBLEM_COOLDOWN = 1200L;
+    private static final Set<UUID> TIMED = ConcurrentHashMap.newKeySet();
+    private static boolean tickTiming;
+    private static int tickWarmup;
+    private static int tickSamples;
+    private static long tickNanos;
 
     private WorkerTicker() {}
+
+    /** Times working ticks for these villagers. The first {@code warmup} samples are discarded. */
+    public static void startTickTiming(Collection<UUID> ids, int warmup) {
+        tickTiming = true;
+        TIMED.clear();
+        if (ids != null) {
+            TIMED.addAll(ids);
+        }
+        tickWarmup = Math.max(0, warmup);
+        tickSamples = 0;
+        tickNanos = 0L;
+    }
+
+    public static void stopTickTiming() {
+        tickTiming = false;
+        TIMED.clear();
+    }
+
+    public static int tickTimingSamples() {
+        return tickSamples;
+    }
+
+    /** Average milliseconds for ten working ticks, from the samples taken so far. */
+    public static double averageTickMillisForTen() {
+        if (tickSamples <= 0) {
+            return 0.0;
+        }
+        return (tickNanos / (double) tickSamples) * 10.0 / 1_000_000.0;
+    }
 
     public static void tick(Villager villager, WorkerData data) {
         if (!(villager.level() instanceof ServerLevel level)) {
             return;
         }
+        long started = tickTiming ? System.nanoTime() : 0L;
+        Scaffolding.bind(villager, data);
         WorkerAttachments.applyLook(villager, data);
         if (!data.sleepTracked()) {
             data.setSleepTracked(true);
@@ -49,6 +89,14 @@ public final class WorkerTicker {
         }
         if (!held) {
             JobRunner.tick(villager, data);
+        }
+        if (started != 0L && TIMED.contains(villager.getUUID()) && data.activity() == WorkerActivity.WORKING) {
+            if (tickWarmup > 0) {
+                tickWarmup--;
+            } else {
+                tickNanos += System.nanoTime() - started;
+                tickSamples++;
+            }
         }
     }
 

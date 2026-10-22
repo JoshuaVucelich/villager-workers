@@ -4,6 +4,7 @@ import com.vucelich.villagerworkers.common.ActionPace;
 import com.vucelich.villagerworkers.common.CrewLogic;
 import com.vucelich.villagerworkers.common.ProblemCode;
 import com.vucelich.villagerworkers.common.ScaffoldKinds;
+import com.vucelich.villagerworkers.common.ScaffoldPost;
 import com.vucelich.villagerworkers.common.SetupLimits;
 import com.vucelich.villagerworkers.common.WorkerActivity;
 import com.vucelich.villagerworkers.common.WorkerData;
@@ -17,6 +18,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -48,10 +52,17 @@ public final class Scaffolding {
     private static final Map<UUID, List<Post>> POSTS = new ConcurrentHashMap<>();
     /** Positions of temporary blocks. Lookup stays one hash check per schematic cell. */
     private static final Set<BlockPos> POST_AT = ConcurrentHashMap.newKeySet();
+    /** Worker data for the villagers that have placed a temporary block this session. */
+    private static final Map<UUID, WorkerData> DATA = new ConcurrentHashMap<>();
+    /** Villagers whose saved posts have already been copied into memory. */
+    private static final Set<UUID> HYDRATED = ConcurrentHashMap.newKeySet();
     /** How many scaffolding items were placed. Tests read this. Server stop does not zero it. */
     private static int scaffoldingPlaced;
+    /** How many of those placements were Create andesite scaffolding. */
+    private static int andesitePlaced;
 
-    private record Post(BlockPos pos, BlockState previous, Item item) {}
+    /** previousSnbt and itemId are stored once so a later save does not encode every post again. */
+    private record Post(BlockPos pos, BlockState previous, Item item, String previousSnbt, String itemId) {}
 
     private Scaffolding() {}
 
@@ -66,19 +77,94 @@ public final class Scaffolding {
         for (Post post : posts) {
             POST_AT.remove(post.pos);
         }
+        HYDRATED.remove(villagerId);
+        DATA.remove(villagerId);
     }
 
     public static void clear() {
         POSTS.clear();
         POST_AT.clear();
+        DATA.clear();
+        HYDRATED.clear();
+    }
+
+    /**
+     * Drops this villager's in-memory posts without changing the save.
+     * The next {@link #bind} reads them again, which is what a restart does.
+     */
+    public static void unload(UUID villagerId) {
+        if (villagerId == null) {
+            return;
+        }
+        List<Post> posts = POSTS.remove(villagerId);
+        if (posts != null) {
+            for (Post post : posts) {
+                POST_AT.remove(post.pos);
+            }
+        }
+        HYDRATED.remove(villagerId);
+        DATA.remove(villagerId);
+    }
+
+    /**
+     * Copies saved temporary blocks into memory once per load.
+     * Later calls keep the same memory list and only refresh the data reference.
+     */
+    public static void bind(Villager villager, WorkerData data) {
+        if (villager == null || data == null) {
+            return;
+        }
+        UUID id = villager.getUUID();
+        DATA.put(id, data);
+        if (!HYDRATED.add(id)) {
+            return;
+        }
+        List<ScaffoldPost> saved = data.scaffoldPosts();
+        if (saved.isEmpty()) {
+            return;
+        }
+        List<Post> posts = new ArrayList<>();
+        for (ScaffoldPost one : saved) {
+            if (one == null || one.itemId() == null || one.itemId().isBlank()) {
+                continue;
+            }
+            ResourceLocation key;
+            try {
+                key = ResourceLocation.parse(one.itemId());
+            } catch (RuntimeException ex) {
+                continue;
+            }
+            Item item = BuiltInRegistries.ITEM.get(key);
+            if (!(item instanceof BlockItem) || item == Items.AIR || one.state() == null || one.state().isBlank()) {
+                continue;
+            }
+            BlockState previous;
+            try {
+                CompoundTag tag = TagParser.parseTag(one.state());
+                previous = NbtUtils.readBlockState(BuiltInRegistries.BLOCK.asLookup(), tag);
+            } catch (Exception ex) {
+                continue;
+            }
+            BlockPos pos = new BlockPos(one.x(), one.y(), one.z()).immutable();
+            posts.add(new Post(pos, previous, item, one.state(), one.itemId()));
+            POST_AT.add(pos);
+        }
+        if (!posts.isEmpty()) {
+            POSTS.put(id, posts);
+        }
     }
 
     public static int scaffoldingPlaced() {
         return scaffoldingPlaced;
     }
 
+    public static int andesitePlaced() {
+        return andesitePlaced;
+    }
+
     public static void resetPlaced() {
         scaffoldingPlaced = 0;
+        andesitePlaced = 0;
     }
 
     public static int standing(UUID villagerId) {
@@ -88,6 +174,7 @@ public final class Scaffolding {
 
     /** One step toward the cell: place a block under the next footing, or climb onto one already placed. */
     public static boolean advance(ServerLevel level, Villager villager, WorkerData data, BlockPos target, List<Container> chests) {
+        bind(villager, data);
         BlockPos feet = villager.blockPosition();
         BlockPos next = nextFeet(feet, target);
         BlockPos post = next.below();
@@ -131,10 +218,17 @@ public final class Scaffolding {
             return false;
         }
         BlockPos saved = post.immutable();
-        POSTS.computeIfAbsent(villager.getUUID(), id -> new ArrayList<>()).add(new Post(saved, previous, item));
+        String itemId = BuiltInRegistries.ITEM.getKey(item).toString();
+        POSTS.computeIfAbsent(villager.getUUID(), id -> new ArrayList<>())
+                .add(new Post(saved, previous, item, NbtUtils.writeBlockState(previous).toString(), itemId));
         POST_AT.add(saved);
+        write(villager.getUUID());
+        touch(level, villager.getUUID());
         if (isScaffoldItem(item)) {
             scaffoldingPlaced++;
+            if (BuiltInRegistries.ITEM.getKey(item).toString().equals(ScaffoldKinds.ANDESITE.itemId())) {
+                andesitePlaced++;
+            }
         }
         climb(villager, next);
         return true;
@@ -148,15 +242,18 @@ public final class Scaffolding {
      * The temporary block is already the schematic block. Keep it and do not return the item.
      * Putting the old state back would erase a finished part of the build.
      */
-    public static void claim(BlockPos pos) {
+    public static void claim(ServerLevel level, BlockPos pos) {
         if (pos == null) {
             return;
         }
-        for (List<Post> posts : POSTS.values()) {
+        for (var entry : POSTS.entrySet()) {
+            List<Post> posts = entry.getValue();
             for (int i = posts.size() - 1; i >= 0; i--) {
                 if (posts.get(i).pos.equals(pos)) {
                     posts.remove(i);
                     POST_AT.remove(pos);
+                    write(entry.getKey());
+                    touch(level, entry.getKey());
                     return;
                 }
             }
@@ -174,6 +271,8 @@ public final class Scaffolding {
                 }
                 posts.remove(i);
                 POST_AT.remove(pos);
+                write(entry.getKey());
+                touch(level, entry.getKey());
                 Villager owner = fallback;
                 WorkerData data = null;
                 Entity entity = level.getEntity(entry.getKey());
@@ -194,7 +293,10 @@ public final class Scaffolding {
 
     /** Puts every temporary block back and returns the items. Blocks we did not place are left alone. */
     public static void finish(ServerLevel level, Villager villager, WorkerData data, List<Container> chests) {
+        bind(villager, data);
         List<Post> posts = POSTS.remove(villager.getUUID());
+        write(villager.getUUID());
+        touch(level, villager.getUUID());
         if (posts == null) {
             return;
         }
@@ -202,6 +304,38 @@ public final class Scaffolding {
             Post post = posts.get(i);
             POST_AT.remove(post.pos);
             restore(level, villager, data, chests, post);
+        }
+    }
+
+    private static void write(UUID villagerId) {
+        WorkerData data = DATA.get(villagerId);
+        if (data == null) {
+            return;
+        }
+        List<Post> posts = POSTS.get(villagerId);
+        if (posts == null || posts.isEmpty()) {
+            data.setScaffoldPosts(List.of());
+            return;
+        }
+        List<ScaffoldPost> saved = new ArrayList<>(posts.size());
+        for (Post post : posts) {
+            saved.add(new ScaffoldPost(
+                    post.pos.getX(), post.pos.getY(), post.pos.getZ(), post.previousSnbt, post.itemId));
+        }
+        data.setScaffoldPosts(saved);
+    }
+
+    private static void touch(ServerLevel level, UUID villagerId) {
+        if (level == null || villagerId == null) {
+            return;
+        }
+        WorkerData data = DATA.get(villagerId);
+        if (data == null) {
+            return;
+        }
+        Entity entity = level.getEntity(villagerId);
+        if (entity instanceof Villager villager && villager.getExistingDataOrNull(WorkerAttachments.WORKER.get()) != data) {
+            villager.setData(WorkerAttachments.WORKER, data);
         }
     }
 
