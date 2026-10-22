@@ -6,7 +6,9 @@ import com.vucelich.villagerworkers.neoforge.client.ClientModEvents;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
@@ -17,7 +19,8 @@ import org.slf4j.Logger;
 public final class VillagerWorkersMod {
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    public VillagerWorkersMod(IEventBus modBus) {
+    public VillagerWorkersMod(IEventBus modBus, ModContainer container) {
+        container.registerConfig(ModConfig.Type.CLIENT, WorkerConfig.CLIENT_SPEC);
         ModItems.ITEMS.register(modBus);
         ModMenus.MENUS.register(modBus);
         WorkerAttachments.ATTACHMENTS.register(modBus);
@@ -25,6 +28,7 @@ public final class VillagerWorkersMod {
         modBus.addListener(VillagerWorkersMod::addWandToTools);
         if (FMLEnvironment.dist == Dist.CLIENT) {
             modBus.addListener(ClientModEvents::registerScreens);
+            modBus.addListener(ClientModEvents::addLayers);
         }
         modBus.addListener(VillagerWorkersMod::logJar);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onEntityInteract);

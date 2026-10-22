@@ -181,6 +181,7 @@ public final class WorkerServer {
         WorkerData hired = WorkerData.hire(serverPlayer.getUUID());
         hired.rememberOwnerName(serverPlayer.getUUID(), serverPlayer.getGameProfile().getName());
         WorkerAttachments.hire(villager, hired);
+        WorkerLooks.refresh(villager, hired);
         serverPlayer.sendSystemMessage(Component.literal("Hired. You own this worker."));
     }
 
@@ -229,6 +230,14 @@ public final class WorkerServer {
             case MenuIds.LINK_MINER_TOOL -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.MINER_TOOL);
             case MenuIds.LINK_SCHEMATIC -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.SCHEMATIC);
             case MenuIds.LINK_MATERIAL -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.MATERIAL);
+            case MenuIds.PROMOTE -> {
+                data.setForeman(true);
+                WorkerLooks.refresh(villager, data);
+            }
+            case MenuIds.DEMOTE -> {
+                data.setForeman(false);
+                WorkerLooks.refresh(villager, data);
+            }
             case MenuIds.SHOW_PERMISSIONS -> {
                 sendPermissions(serverPlayer, villager, data);
                 return true;

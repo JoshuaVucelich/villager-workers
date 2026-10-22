@@ -57,6 +57,8 @@ public final class WorkerData {
     private long hurtNotifiedAt = Long.MIN_VALUE;
     private boolean hungryPending;
     private boolean hurtPending;
+    private boolean foreman;
+    private int crewSize;
 
     /** Not saved. Used to notice the villager waking up. */
     private boolean sleepTracked;
@@ -125,31 +127,38 @@ public final class WorkerData {
         data.hurtNotifiedAt = alerts.hurtNotifiedAt();
         data.hungryPending = alerts.hungryPending();
         data.hurtPending = alerts.hurtPending();
+        data.foreman = alerts.foreman();
+        data.crewSize = alerts.crewSize();
         return data;
     }
 
     private AlertBookkeeping alerts() {
-        return new AlertBookkeeping(hungryNotifiedAt, hurtNotifiedAt, hungryPending, hurtPending, List.copyOf(notices));
+        return new AlertBookkeeping(
+                hungryNotifiedAt, hurtNotifiedAt, hungryPending, hurtPending, List.copyOf(notices), foreman, crewSize);
     }
 
     /**
-     * Hunger, injury, and work notices, nested so the worker codec stays within Mojang's 16-field record limit.
+     * Hunger, injury, work notices, and the foreman flag. Nested so the worker codec stays within Mojang's 16-field record limit.
      */
     public record AlertBookkeeping(
             long hungryNotifiedAt,
             long hurtNotifiedAt,
             boolean hungryPending,
             boolean hurtPending,
-            List<WorkNotice> notices) {
+            List<WorkNotice> notices,
+            boolean foreman,
+            int crewSize) {
         public static final AlertBookkeeping NONE =
-                new AlertBookkeeping(Long.MIN_VALUE, Long.MIN_VALUE, false, false, List.of());
+                new AlertBookkeeping(Long.MIN_VALUE, Long.MIN_VALUE, false, false, List.of(), false, 0);
 
         public static final Codec<AlertBookkeeping> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.LONG.optionalFieldOf("hungry_notified_at", Long.MIN_VALUE).forGetter(AlertBookkeeping::hungryNotifiedAt),
                 Codec.LONG.optionalFieldOf("hurt_notified_at", Long.MIN_VALUE).forGetter(AlertBookkeeping::hurtNotifiedAt),
                 Codec.BOOL.optionalFieldOf("hungry_pending", false).forGetter(AlertBookkeeping::hungryPending),
                 Codec.BOOL.optionalFieldOf("hurt_pending", false).forGetter(AlertBookkeeping::hurtPending),
-                WorkNotice.CODEC.listOf().optionalFieldOf("notices", List.of()).forGetter(AlertBookkeeping::notices)
+                WorkNotice.CODEC.listOf().optionalFieldOf("notices", List.of()).forGetter(AlertBookkeeping::notices),
+                Codec.BOOL.optionalFieldOf("foreman", false).forGetter(AlertBookkeeping::foreman),
+                Codec.INT.optionalFieldOf("crew_size", 0).forGetter(AlertBookkeeping::crewSize)
         ).apply(instance, AlertBookkeeping::new));
     }
 
@@ -467,6 +476,23 @@ public final class WorkerData {
 
     public void setHurtPending(boolean hurtPending) {
         this.hurtPending = hurtPending;
+    }
+
+    public boolean foreman() {
+        return foreman;
+    }
+
+    /** Cosmetic rank only. It does not put an item in the villager's inventory or hands. */
+    public void setForeman(boolean foreman) {
+        this.foreman = foreman;
+    }
+
+    public int crewSize() {
+        return crewSize;
+    }
+
+    public void setCrewSize(int crewSize) {
+        this.crewSize = Math.max(0, crewSize);
     }
 
     public boolean sleepTracked() {

@@ -36,7 +36,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     public WorkerScreen(WorkerMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
         this.imageWidth = 284;
-        this.imageHeight = 268;
+        this.imageHeight = 292;
         this.inventoryLabelY = 10000;
     }
 
@@ -77,6 +77,8 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     }
 
     private void initWork(WorkerView view, int x, int y) {
+        addRenderableWidget(button(view.foreman() ? "Demote" : "Promote to Foreman", x, y, 150, view.foreman() ? MenuIds.DEMOTE : MenuIds.PROMOTE));
+        y += 24;
         switch (view.job()) {
             case "lumberjack" -> initLumberjack(view, x, y);
             case "miner" -> initMiner(view, x, y);
@@ -320,7 +322,8 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     @Override
     protected void renderLabels(GuiGraphics graphics, int mouseX, int mouseY) {
         WorkerView view = this.menu.view();
-        graphics.drawString(this.font, view.name(), 8, 6, 0xFFFFFF, false);
+        String title = view.foreman() ? "Foreman " + view.name() : view.name();
+        graphics.drawString(this.font, title, 8, 6, 0xFFFFFF, false);
         graphics.drawString(this.font, "Health " + view.health() + "/" + view.maxHealth()
                 + "  " + view.activity()
                 + "  " + (view.rested() ? "rested" : "not rested"), 8, 18, 0xDDDDDD, false);

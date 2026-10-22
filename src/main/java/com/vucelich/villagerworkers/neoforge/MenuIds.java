@@ -20,6 +20,8 @@ public final class MenuIds {
     public static final int LINK_SCHEMATIC = 46;
     public static final int LINK_MATERIAL = 47;
     public static final int SHOW_PERMISSIONS = 60;
+    public static final int PROMOTE = 70;
+    public static final int DEMOTE = 71;
 
     private MenuIds() {}
 }
