@@ -338,9 +338,17 @@ Replanting places one matching sapling on a dirt-like block inside the lumberjac
 
 ## Builder
 
-Create is an optional runtime dependency, declared as `create` `[6.0,)`. The mod loads without it. Starting the builder job without Create is rejected with a problem line the owner can see.
+Create is an optional runtime dependency, declared as `create` `[6.0,)`. The mod loads without it. Starting the builder job without Create is rejected unless a structure file is linked. That rejection is a problem line the owner can see.
 
 The player places a Create schematicannon and loads a schematic into it, then links that block from the builder setup. The worker reads the schematic. It does not turn the cannon on and does not spend the cannon's fuel.
+
+A builder can also place gzipped vanilla structure files, the same NBT `StructureTemplate.load` reads. Put the files in the world folder `villager_workers/schematics`. A written book, or a book and quill, lists one piece per line as `file.nbt dx dy dz`. Mark origin with the area wand. Pieces are numbered parts of one build, each with its own offset, so a huge build can be split the way a 3D printer splits a model. The worker places the lowest layer first and keeps block entity data when that data has no items, book, record, or loot table. Materials come from the linked chests, then the worker inventory. Missing materials are told to every online owner. When Create is installed, item counts use Create's `ItemRequirement`, and only consumed items are taken. Aeronautics ships saved unassembled are ordinary blocks in that file, so they build the same way. The cannon path is unchanged and is used only when no structure file is linked.
+
+`buildPlacementsPerTick` (default 1), `buildScanBudget` (default 64), and `buildIntervalTicks` (default -1, which uses the normal work pace) cap the cost. `createSchematicUploadKb` defaults to 256 and does not change Create. A higher value raises Create's `maxTotalSchematicSize`, and `maxSchematicPacketSize` up to its 32767 byte cap, through the public config object. No mixin.
+
+Build now places the whole assigned schematic in one action. The server allows it only when the player is in creative mode and has instabuild. Survival, adventure, and spectator place nothing.
+
+A foreman with a structure file can split layers across the crew. Each member becomes a builder with the same pieces, origin, and chests, and a y band of their own.
 
 Confirm Create 6.0's schematic holder API at the start of M3 (`SchematicannonBlockEntity` and the schematic type in `com.simibubi.create.content.schematics`) before writing the adapter. The adapter lives in the NeoForge package because it has to call Create. The placement rules stay in `common`.
 

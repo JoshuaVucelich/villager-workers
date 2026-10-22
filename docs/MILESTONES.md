@@ -250,3 +250,7 @@ A worker can be assigned to one of your foremen. The foreman's screen lists unas
 ## Broken blocks go into the inventory
 
 A break still uses the same safety checks. The items from that break are inserted into the 27 carry slots before anything else. Overflow tries the linked chest for that item. The ground is only used when the inventory and that chest cannot take the stack. A stack that fit in the inventory is still hauled when the chest has room, so a full chest still pauses the job and keeps the drop in the inventory.
+
+## Structure schematics
+
+A builder places gzipped vanilla structure files from `villager_workers/schematics`, bottom layer first, pulling materials from linked chests and then its inventory. Several numbered pieces with offsets make one build. Create's item requirement is used when Create is present. A config value above 256 KB raises Create's schematic upload limit. Build now is creative only. A foreman can split the layers across the crew. The Create schematicannon path still works when no structure file is linked.

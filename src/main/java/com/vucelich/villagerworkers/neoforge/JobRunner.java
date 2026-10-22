@@ -123,11 +123,13 @@ public final class JobRunner {
             return;
         }
         if (data.job() == WorkerJob.BUILDER) {
-            if (ModList.get().isLoaded("create")) {
+            if (data.builder().hasStructure()) {
+                StructureBuilder.tick(villager, data);
+            } else if (ModList.get().isLoaded("create")) {
                 CreateBuilder.tick(villager, data);
             } else if (data.activity() == WorkerActivity.WORKING) {
                 data.setActivity(WorkerActivity.STOPPED);
-                OwnerNotices.report(villager, data, ProblemCode.MISSING_CHEST, "Create");
+                OwnerNotices.report(villager, data, ProblemCode.MISSING_CHEST, "a structure file");
             }
             if (data.activity() != WorkerActivity.WORKING) {
                 release(villager, data, runtime);
@@ -171,10 +173,12 @@ public final class JobRunner {
             }
             return;
         }
-        Deposit delivered = deliverCarry(level, villager, data);
-        if (delivered != Deposit.OK) {
-            pauseForDeposit(villager, data, runtime, delivered);
-            return;
+        if (hasEmptyCarrySlot(data)) {
+            Deposit delivered = deliverCarry(level, villager, data);
+            if (delivered != Deposit.OK) {
+                pauseForDeposit(villager, data, runtime, delivered);
+                return;
+            }
         }
         if (!ensureTool(villager, data, runtime)) {
             return;
@@ -238,6 +242,7 @@ public final class JobRunner {
                 runtime.stuckSince++;
             }
         }
+        StructureBuilder.freezeWhileHeld(villager.getUUID());
         if (ModList.get().isLoaded("create")) {
             CreateBuilder.freezeWhileHeld(villager.getUUID());
         }
@@ -283,6 +288,7 @@ public final class JobRunner {
     private static void forgetRuntime(Villager villager) {
         RUNTIMES.remove(villager.getUUID());
         WorkerHold.forget(villager.getUUID());
+        StructureBuilder.forget(villager.getUUID());
         if (ModList.get().isLoaded("create")) {
             CreateBuilder.forget(villager.getUUID());
         }
@@ -1030,6 +1036,16 @@ public final class JobRunner {
         ResourceLocation id = BuiltInRegistries.ITEM.getKey(drop.getItem());
         boolean valuable = data.miner().valuables().stream().anyMatch(id::equals);
         return valuable ? data.miner().valuablesChest().orElse(null) : data.miner().regularChest().orElse(null);
+    }
+
+    /** True when a new item that does not stack with the carry could still fit. */
+    private static boolean hasEmptyCarrySlot(WorkerData data) {
+        for (int slot = 0; slot < WorkerData.CARRY_SLOTS; slot++) {
+            if (data.carry(slot).isEmpty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Moves carry slots into the linked chest for each stack. Leftovers stay in the carry slots. */

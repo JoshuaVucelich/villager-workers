@@ -3,6 +3,8 @@ package com.vucelich.villagerworkers.neoforge;
 import com.vucelich.villagerworkers.common.ActivityRules;
 import com.vucelich.villagerworkers.common.ChatCommands;
 import com.vucelich.villagerworkers.common.CrewLogic;
+import com.vucelich.villagerworkers.common.PieceList;
+import com.vucelich.villagerworkers.common.StructurePlan;
 import com.vucelich.villagerworkers.common.ScaffoldKinds;
 import com.vucelich.villagerworkers.common.MinerConfig;
 import com.vucelich.villagerworkers.common.MinerMode;
@@ -189,9 +191,9 @@ public final class WorkerServer {
             case COME -> data.comeTo(player.getUUID());
             case STOP -> data.setActivity(ActivityRules.afterStop());
             case RESUME -> {
-                Optional<WorkerActivity> next = ActivityRules.afterResume(data.job(), net.neoforged.fml.ModList.get().isLoaded("create"));
+                Optional<WorkerActivity> next = ActivityRules.afterResume(data.job(), builderReady(data));
                 if (next.isEmpty()) {
-                    player.sendSystemMessage(Component.literal("Create is required before this worker can build."));
+                    player.sendSystemMessage(Component.literal("Link a structure file, or install Create, before this worker can build."));
                     return;
                 }
                 data.setActivity(next.get());
@@ -259,7 +261,7 @@ public final class WorkerServer {
         }
         switch (id) {
             case MenuIds.START -> {
-                if (!applyActivity(serverPlayer, data, ActivityRules.afterStart(data.job(), net.neoforged.fml.ModList.get().isLoaded("create")))) {
+                if (!applyActivity(serverPlayer, data, ActivityRules.afterStart(data.job(), builderReady(data)))) {
                     return false;
                 }
             }
@@ -280,6 +282,9 @@ public final class WorkerServer {
             case MenuIds.LINK_MINER_TOOL -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.MINER_TOOL);
             case MenuIds.LINK_SCHEMATIC -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.SCHEMATIC);
             case MenuIds.LINK_MATERIAL -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.MATERIAL);
+            case MenuIds.READ_PIECES -> readPieces(serverPlayer, data);
+            case MenuIds.BUILD_NOW -> StructureBuilder.buildNow(serverPlayer, villager, data);
+            case MenuIds.SPLIT_LAYERS -> splitLayers(serverPlayer, villager, data);
             case MenuIds.SHOW_PERMISSIONS -> {
                 sendPermissions(serverPlayer, villager, data);
                 return true;
@@ -868,9 +873,61 @@ public final class WorkerServer {
         return data;
     }
 
+    private static boolean builderReady(WorkerData data) {
+        return net.neoforged.fml.ModList.get().isLoaded("create") || data.builder().hasStructure();
+    }
+
+    private static void readPieces(ServerPlayer player, WorkerData data) {
+        String text = BookPages.text(player.getMainHandItem());
+        if (text == null) {
+            text = BookPages.text(player.getOffhandItem());
+        }
+        if (text == null) {
+            player.sendSystemMessage(Component.literal("Hold a written book or a book and quill. One line is file.nbt dx dy dz."));
+            return;
+        }
+        List<com.vucelich.villagerworkers.common.SchematicPiece> pieces = PieceList.parse(text);
+        if (pieces.isEmpty()) {
+            player.sendSystemMessage(Component.literal("No schematic pieces in that book."));
+            return;
+        }
+        data.setBuilder(data.builder().withPieces(pieces));
+        player.sendSystemMessage(Component.literal("Read " + pieces.size() + " schematic pieces."));
+    }
+
+    private static void splitLayers(ServerPlayer player, Villager villager, WorkerData data) {
+        if (data.rank() != WorkerRank.FOREMAN) {
+            player.sendSystemMessage(Component.literal("Only a foreman can split a build across a crew."));
+            return;
+        }
+        if (!data.builder().hasStructure() || !(villager.level() instanceof ServerLevel level)) {
+            player.sendSystemMessage(Component.literal("Read a piece book and mark an origin first."));
+            return;
+        }
+        StructureLibrary.Loaded loaded = StructureLibrary.load(level, data.builder().pieces(), WorkerSettings.createSchematicUploadKb());
+        if (!loaded.ok()) {
+            player.sendSystemMessage(Component.literal(loaded.error()));
+            return;
+        }
+        List<Villager> crew = new ArrayList<>(crewOf(villager));
+        crew.sort(java.util.Comparator.comparing(member -> member.getUUID().toString()));
+        int[][] bands = StructurePlan.bands(loaded.minY(), loaded.maxY(), crew.size());
+        int assigned = Math.min(bands.length, crew.size());
+        for (int i = 0; i < assigned; i++) {
+            WorkerData member = WorkerAttachments.get(crew.get(i)).orElse(null);
+            if (member == null) {
+                continue;
+            }
+            member.setJob(WorkerJob.BUILDER);
+            member.setBuilder(data.builder().withLayers(bands[i][0], bands[i][1]));
+        }
+        player.sendSystemMessage(Component.literal(
+                "Split layers " + loaded.minY() + " to " + loaded.maxY() + " across " + assigned + " workers."));
+    }
+
     private static boolean applyActivity(ServerPlayer player, WorkerData data, Optional<WorkerActivity> next) {
         if (next.isEmpty()) {
-            player.sendSystemMessage(Component.literal("Create is required before this worker can build."));
+            player.sendSystemMessage(Component.literal("Link a structure file, or install Create, before this worker can build."));
             return false;
         }
         data.setActivity(next.get());
@@ -1049,10 +1106,9 @@ public final class WorkerServer {
             case "come" -> data.comeTo(player.getUUID());
             case "stop", "stay" -> data.setActivity(ActivityRules.afterStop());
             case "start", "work", "resume" -> {
-                java.util.Optional<WorkerActivity> next = ActivityRules.afterResume(
-                        data.job(), net.neoforged.fml.ModList.get().isLoaded("create"));
+                java.util.Optional<WorkerActivity> next = ActivityRules.afterResume(data.job(), builderReady(data));
                 if (next.isEmpty()) {
-                    player.sendSystemMessage(Component.literal("Create is required before this worker can build."));
+                    player.sendSystemMessage(Component.literal("Link a structure file, or install Create, before this worker can build."));
                     return false;
                 }
                 data.setActivity(next.get());

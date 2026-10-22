@@ -612,6 +612,7 @@ public final class WorkerData {
         miner.regularChest().ifPresent(positions::add);
         miner.toolChest().ifPresent(positions::add);
         builder.schematicAnchor().ifPresent(positions::add);
+        builder.structureOrigin().ifPresent(positions::add);
         positions.addAll(builder.materialChests());
         return positions;
     }

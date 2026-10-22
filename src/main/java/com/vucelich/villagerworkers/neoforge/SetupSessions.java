@@ -40,7 +40,14 @@ public final class SetupSessions {
         MATERIAL
     }
 
-    private record Session(UUID villagerId, boolean origin, LinkTarget link, BlockPos firstCorner, ResourceLocation dimension, long expiresAt) {}
+    private record Session(
+            UUID villagerId,
+            boolean origin,
+            boolean structureOrigin,
+            LinkTarget link,
+            BlockPos firstCorner,
+            ResourceLocation dimension,
+            long expiresAt) {}
 
     private static final Map<UUID, Session> SESSIONS = new ConcurrentHashMap<>();
     private static final long TTL_MS = 120_000L;
@@ -55,20 +62,25 @@ public final class SetupSessions {
     }
 
     public static void armMark(ServerPlayer player, Villager villager, WorkerData data) {
+        if (data.job() == WorkerJob.BUILDER) {
+            SESSIONS.put(player.getUUID(), new Session(villager.getUUID(), false, true, null, null, null, System.currentTimeMillis() + TTL_MS));
+            player.sendSystemMessage(Component.literal("Right-click the build origin with the area wand."));
+            return;
+        }
         boolean origin = data.job() == WorkerJob.MINER && data.miner().mode() != MinerMode.CLEAR_BOX;
         boolean area = data.job() == WorkerJob.LUMBERJACK || (data.job() == WorkerJob.MINER && data.miner().mode() == MinerMode.CLEAR_BOX);
         if (!origin && !area) {
             player.sendSystemMessage(Component.literal("Pick the lumberjack, or a miner mode, before marking."));
             return;
         }
-        SESSIONS.put(player.getUUID(), new Session(villager.getUUID(), origin, null, null, null, System.currentTimeMillis() + TTL_MS));
+        SESSIONS.put(player.getUUID(), new Session(villager.getUUID(), origin, false, null, null, null, System.currentTimeMillis() + TTL_MS));
         player.sendSystemMessage(Component.literal(origin
                 ? "Right-click the start block with the area wand."
                 : "Right-click two corners with the area wand."));
     }
 
     public static void armLink(ServerPlayer player, Villager villager, LinkTarget target) {
-        SESSIONS.put(player.getUUID(), new Session(villager.getUUID(), false, target, null, null, System.currentTimeMillis() + TTL_MS));
+        SESSIONS.put(player.getUUID(), new Session(villager.getUUID(), false, false, target, null, null, System.currentTimeMillis() + TTL_MS));
         String hint = target == LinkTarget.SCHEMATIC
                 ? "Right-click a Create schematic block within 8 blocks of the worker."
                 : "Right-click a chest or barrel within 8 blocks of the worker.";
@@ -97,12 +109,16 @@ public final class SetupSessions {
         }
         BlockPos pos = context.getClickedPos();
         ResourceLocation dimension = player.level().dimension().location();
-        if (session.origin) {
+        if (session.structureOrigin) {
+            data.setBuilder(data.builder().withStructureOrigin(Optional.of(pos)));
+            SESSIONS.remove(player.getUUID());
+            player.sendSystemMessage(Component.literal("Build origin saved."));
+        } else if (session.origin) {
             data.setMiner(data.miner().withOrigin(Optional.of(new WorkOrigin(dimension, pos, player.getDirection().getName()))));
             SESSIONS.remove(player.getUUID());
             player.sendSystemMessage(Component.literal("Origin saved."));
         } else if (session.firstCorner == null) {
-            SESSIONS.put(player.getUUID(), new Session(session.villagerId, false, null, pos, dimension, session.expiresAt));
+            SESSIONS.put(player.getUUID(), new Session(session.villagerId, false, false, null, pos, dimension, session.expiresAt));
             player.sendSystemMessage(Component.literal("First corner set. Right-click the opposite corner."));
         } else {
             if (session.dimension != null && !session.dimension.equals(dimension)) {

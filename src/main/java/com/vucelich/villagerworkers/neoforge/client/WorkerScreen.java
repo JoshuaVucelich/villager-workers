@@ -81,7 +81,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         addRenderableWidget(action("None", "No job. This worker waits.", x, y, 54, MenuIds.JOB_NONE));
         addRenderableWidget(action("Lumberjack", "Cuts trees inside the marked area.", x + 56, y, 74, MenuIds.JOB_LUMBERJACK));
         addRenderableWidget(action("Miner", "Digs the marked area, tunnel, branch, or shaft.", x + 132, y, 52, MenuIds.JOB_MINER));
-        addRenderableWidget(action("Builder", "Places a linked Create schematic.", x + 186, y, 62, MenuIds.JOB_BUILDER));
+        addRenderableWidget(action("Builder", "Places a structure file, or a linked Create schematic.", x + 186, y, 62, MenuIds.JOB_BUILDER));
         y += 20;
         addRenderableWidget(action("Start", "Begin the selected job.", x, y, 54, MenuIds.START));
         addRenderableWidget(action("Stop", "Stop and stay stopped until you start again.", x + 56, y, 54, MenuIds.STOP));
@@ -265,6 +265,18 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
             }
             case "miner" -> initMinerArea(view, x, y);
             case "builder" -> {
+                addRenderableWidget(action("Mark origin", "Right-click the corner of the build with the area wand.", x, y, 88, MenuIds.MARK));
+                addRenderableWidget(action("Read book", "Hold a book. One line is file.nbt dx dy dz.", x + 92, y, 80, MenuIds.READ_PIECES));
+                addRenderableWidget(action("Build now", "Creative only. Places this worker's schematic at once.", x + 176, y, 80, MenuIds.BUILD_NOW));
+                if ("foreman".equals(view.rank())) {
+                    addRenderableWidget(action(
+                            "Split layers",
+                            "Give each crew member a band of layers from this structure.",
+                            x,
+                            y + 18,
+                            100,
+                            MenuIds.SPLIT_LAYERS));
+                }
             }
             default -> {
             }
@@ -502,14 +514,20 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
             case "miner" -> trim("clear_box".equals(view.minerMode())
                     ? "Area " + view.areaText() + "  regular " + view.regularChest() + "  valuables " + view.valuablesChest()
                     : "Origin " + view.originText() + "  regular " + view.regularChest() + "  valuables " + view.valuablesChest());
-            case "builder" -> trim((view.createLoaded() ? "Schematic " : "Create is required. Schematic ")
-                    + view.schematic() + "  chests " + view.materialChests());
+            case "builder" -> trim(view.structureText() + "  " + view.materialsText());
             default -> "Pick a job. Nothing is broken or built yet.";
         };
     }
 
     private static String trim(String text) {
         return text.length() > 40 ? text.substring(0, 37) + "..." : text;
+    }
+
+    private static String trimWide(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() > 70 ? text.substring(0, 67) + "..." : text;
     }
 
     private static int activityColor(String activity) {
@@ -576,10 +594,10 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
                 graphics.drawString(this.font, "Only the owner can change who uses this worker.", this.leftPos + 8, this.topPos + 96, 0xFFAA55, false);
             }
         } else if (tab == TAB_AREA && "builder".equals(this.menu.view().job())) {
-            String line = this.menu.view().createLoaded()
-                    ? "The builder uses the linked schematic. Link chests on Storage."
-                    : "Create is required before this worker can build.";
-            graphics.drawString(this.font, line, this.leftPos + 8, this.topPos + 62, 0xC8BBA8, false);
+            WorkerView view = this.menu.view();
+            graphics.drawString(this.font, trimWide(view.structureText()), this.leftPos + 8, this.topPos + 78, 0xC8BBA8, false);
+            graphics.drawString(this.font, trimWide(view.materialsText()), this.leftPos + 8, this.topPos + 90, 0xC8BBA8, false);
+            graphics.drawString(this.font, "Link material chests on Storage. Files go in villager_workers/schematics.", this.leftPos + 8, this.topPos + 102, 0xC8BBA8, false);
         }
     }
 

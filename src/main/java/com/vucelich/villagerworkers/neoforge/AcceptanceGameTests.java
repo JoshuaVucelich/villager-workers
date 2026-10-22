@@ -8,7 +8,9 @@ import com.simibubi.create.content.schematics.SchematicItem;
 import com.simibubi.create.content.schematics.cannon.SchematicannonBlockEntity;
 import com.simibubi.create.foundation.utility.CreatePaths;
 import com.vucelich.villagerworkers.common.ActionPace;
+import com.vucelich.villagerworkers.common.BuilderConfig;
 import com.vucelich.villagerworkers.common.LumberjackConfig;
+import com.vucelich.villagerworkers.common.SchematicPiece;
 import com.vucelich.villagerworkers.common.MinerConfig;
 import com.vucelich.villagerworkers.common.MinerMode;
 import com.vucelich.villagerworkers.common.ProblemCode;
@@ -86,6 +88,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.entity.BarrelBlockEntity;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.phys.AABB;
@@ -2071,6 +2074,116 @@ public class AcceptanceGameTests {
                 Optional.of(regular),
                 Optional.of(tools),
                 true);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 400)
+    public static void structureFileBuildsCobbleFromTheBottom(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        ServerLevel level = helper.getLevel();
+        BlockPos origin = helper.absolutePos(new BlockPos(1, 1, 1));
+        BlockPos outside = helper.absolutePos(new BlockPos(6, 1, 1));
+        level.setBlockAndUpdate(outside, Blocks.GOLD_BLOCK.defaultBlockState());
+        String file = fillAndSaveBox(level, origin);
+        Villager villager = villager(helper, 4, 1, 4, "Mason");
+        WorkerData data = hire(villager, owner);
+        BlockPos materials = barrel(helper, 4, 1, 5, new ItemStack(Items.COBBLESTONE, 64));
+        data.setJob(WorkerJob.BUILDER);
+        data.setActivity(WorkerActivity.WORKING);
+        data.setRested(true);
+        data.setBuilder(BuilderConfig.defaults()
+                .withStructureOrigin(Optional.of(origin))
+                .withPieces(List.of(new SchematicPiece(file, 0, 0, 0)))
+                .withMaterialChest(materials));
+        helper.succeedWhen(() -> {
+            for (int x = 0; x < 2; x++) {
+                for (int y = 0; y < 2; y++) {
+                    for (int z = 0; z < 2; z++) {
+                        BlockState cell = level.getBlockState(origin.offset(x, y, z));
+                        helper.assertTrue(cell.is(Blocks.COBBLESTONE), "cell " + x + " " + y + " " + z + " is " + cell.getBlock() + " " + data.activity() + " " + data.problem());
+                    }
+                }
+            }
+            helper.assertTrue(level.getBlockState(outside).is(Blocks.GOLD_BLOCK), "outside the footprint");
+            helper.assertTrue(data.activity() == WorkerActivity.STOPPED, "finished");
+            cleanup(owner);
+        });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 80)
+    public static void structureFileReportsMissingCobble(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        ServerLevel level = helper.getLevel();
+        BlockPos origin = helper.absolutePos(new BlockPos(1, 1, 1));
+        String file = fillAndSaveBox(level, origin);
+        Villager villager = villager(helper, 4, 1, 4, "Short");
+        WorkerData data = hire(villager, owner);
+        BlockPos materials = barrel(helper, 4, 1, 5);
+        data.setJob(WorkerJob.BUILDER);
+        data.setActivity(WorkerActivity.WORKING);
+        data.setRested(true);
+        data.setBuilder(BuilderConfig.defaults()
+                .withStructureOrigin(Optional.of(origin))
+                .withPieces(List.of(new SchematicPiece(file, 0, 0, 0)))
+                .withMaterialChest(materials));
+        helper.runAtTickTime(40, () -> {
+            helper.assertTrue(level.getBlockState(origin).isAir(), "nothing placed");
+            helper.assertTrue(data.problem().code() == ProblemCode.OUT_OF_MATERIALS, data.problem().toString());
+            helper.assertTrue(said(owner, "cobblestone"), owner.messages.toString());
+            done(helper, owner);
+        });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void buildNowIsCreativeOnly(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        ServerLevel level = helper.getLevel();
+        BlockPos origin = helper.absolutePos(new BlockPos(1, 1, 1));
+        String file = fillAndSaveBox(level, origin);
+        Villager villager = villager(helper, 4, 1, 4, "Instant");
+        WorkerData data = hire(villager, owner);
+        data.setJob(WorkerJob.BUILDER);
+        data.setBuilder(BuilderConfig.defaults()
+                .withStructureOrigin(Optional.of(origin))
+                .withPieces(List.of(new SchematicPiece(file, 0, 0, 0))));
+        helper.runAtTickTime(1, () -> {
+            int survival = StructureBuilder.buildNow(owner, villager, data);
+            helper.assertTrue(survival == 0, "survival placed " + survival);
+            helper.assertTrue(level.getBlockState(origin).isAir(), "survival left air");
+            owner.setGameMode(net.minecraft.world.level.GameType.CREATIVE);
+            owner.getAbilities().instabuild = true;
+            int creative = StructureBuilder.buildNow(owner, villager, data);
+            helper.assertTrue(creative == 8, "creative placed " + creative + " mode " + owner.gameMode.getGameModeForPlayer() + " " + owner.messages);
+            helper.assertTrue(level.getBlockState(origin.offset(1, 1, 1)).is(Blocks.COBBLESTONE), "top cell");
+            done(helper, owner);
+        });
+    }
+
+    private static String fillAndSaveBox(ServerLevel level, BlockPos origin) {
+        for (int x = 0; x < 2; x++) {
+            for (int y = 0; y < 2; y++) {
+                for (int z = 0; z < 2; z++) {
+                    level.setBlockAndUpdate(origin.offset(x, y, z), Blocks.COBBLESTONE.defaultBlockState());
+                }
+            }
+        }
+        String file = "box" + System.nanoTime() + ".nbt";
+        try {
+            StructureTemplate template = new StructureTemplate();
+            template.fillFromWorld(level, origin, new BlockPos(2, 2, 2), false, null);
+            java.nio.file.Path dir = StructureFiles.directory(level.getServer());
+            Files.createDirectories(dir);
+            NbtIo.writeCompressed(template.save(new CompoundTag()), dir.resolve(file));
+        } catch (IOException exception) {
+            throw new IllegalStateException(exception);
+        }
+        for (int x = 0; x < 2; x++) {
+            for (int y = 0; y < 2; y++) {
+                for (int z = 0; z < 2; z++) {
+                    level.setBlockAndUpdate(origin.offset(x, y, z), Blocks.AIR.defaultBlockState());
+                }
+            }
+        }
+        return file;
     }
 
     private static void writeSchematic(ServerLevel level, String owner, String file, BlockPos origin, BlockPos size) throws IOException {

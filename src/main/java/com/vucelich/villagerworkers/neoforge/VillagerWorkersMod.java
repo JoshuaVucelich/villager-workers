@@ -47,10 +47,20 @@ public final class VillagerWorkersMod {
                 LOGGER.warn("Could not decode a carry item for a worker; that slot was cleared: {}", detail));
         NeoForge.EVENT_BUS.addListener(JobRunner::onDeath);
         NeoForge.EVENT_BUS.addListener(JobRunner::onConvert);
+        NeoForge.EVENT_BUS.addListener(VillagerWorkersMod::onServerStarted);
         NeoForge.EVENT_BUS.addListener(AssemblyGuards::onServerStopped);
+        NeoForge.EVENT_BUS.addListener(VillagerWorkersMod::onServerStopped);
         NeoForge.EVENT_BUS.addListener(WorkerHold::onServerStopped);
         LOGGER.info("Villager Workers ({}) loaded", VillagerWorkers.MOD_ID);
         logJarSha();
+    }
+
+    private static void onServerStarted(net.neoforged.neoforge.event.server.ServerStartedEvent event) {
+        CreateLimits.apply(WorkerSettings.createSchematicUploadKb());
+    }
+
+    private static void onServerStopped(net.neoforged.neoforge.event.server.ServerStoppedEvent event) {
+        StructureBuilder.clear();
     }
 
     /** Dedicated server and client both log this so a release jar can be checked after boot. */

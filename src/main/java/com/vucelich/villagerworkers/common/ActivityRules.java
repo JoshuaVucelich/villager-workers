@@ -4,7 +4,7 @@ import java.util.Optional;
 
 /**
  * How Start, Stop, Come, and Resume change the saved activity.
- * The builder starts only when Create is available. That flag is decided by the loader.
+ * The builder starts when the caller says it can. That is true when Create is installed or a structure file is linked.
  */
 public final class ActivityRules {
     private ActivityRules() {}

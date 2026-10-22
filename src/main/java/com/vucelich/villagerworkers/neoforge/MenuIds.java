@@ -45,6 +45,9 @@ public final class MenuIds {
     public static final int CYCLE_SCAFFOLD = 92;
     public static final int TOGGLE_PLAIN = 93;
     public static final int TOGGLE_OVERRIDE = 94;
+    public static final int READ_PIECES = 95;
+    public static final int BUILD_NOW = 96;
+    public static final int SPLIT_LAYERS = 97;
     /** First id of a valuables checkbox. The offset is an index into {@code ValuableCatalog.entries()}. */
     public static final int VALUABLE_BASE = 400;
 

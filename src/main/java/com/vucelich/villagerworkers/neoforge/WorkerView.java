@@ -55,7 +55,9 @@ public record WorkerView(
         String crewLine,
         String scaffoldOrder,
         boolean plainBlocks,
-        boolean rulesOverride) {
+        boolean rulesOverride,
+        String structureText,
+        String materialsText) {
     public static final StreamCodec<RegistryFriendlyByteBuf, WorkerView> STREAM_CODEC = StreamCodec.of(
             (buf, view) -> view.write(buf),
             WorkerView::read);
@@ -116,7 +118,19 @@ public record WorkerView(
                 crew.crew(),
                 data.scaffoldOrder(),
                 data.plainBlocks(),
-                data.rulesOverride());
+                data.rulesOverride(),
+                structureLine(builder),
+                villager.level() instanceof net.minecraft.server.level.ServerLevel server
+                        ? StructureMaterials.summarize(server, builder)
+                        : "no structure file");
+    }
+
+    private static String structureLine(com.vucelich.villagerworkers.common.BuilderConfig builder) {
+        if (!builder.hasStructure()) {
+            return "no structure file";
+        }
+        String layers = builder.limitsLayers() ? ", layers " + builder.layerMin() + "-" + builder.layerMax() : "";
+        return "origin " + pos(builder.structureOrigin()) + ", " + builder.pieces().size() + " pieces" + layers;
     }
 
     private static String pos(Optional<BlockPos> pos) {
@@ -172,6 +186,8 @@ public record WorkerView(
         buf.writeUtf(scaffoldOrder);
         buf.writeBoolean(plainBlocks);
         buf.writeBoolean(rulesOverride);
+        buf.writeUtf(structureText);
+        buf.writeUtf(materialsText);
     }
 
     public static WorkerView read(RegistryFriendlyByteBuf buf) {
@@ -219,6 +235,8 @@ public record WorkerView(
                 buf.readUtf(),
                 buf.readUtf(),
                 buf.readBoolean(),
-                buf.readBoolean());
+                buf.readBoolean(),
+                buf.readUtf(),
+                buf.readUtf());
     }
 }
