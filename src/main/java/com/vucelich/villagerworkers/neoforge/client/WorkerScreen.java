@@ -182,6 +182,8 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         addRenderableWidget(button("Held schematic", x, y, 110, MenuIds.TAKE_SCHEMATIC));
         addRenderableWidget(button("Mark anchor", x + 114, y, 90, MenuIds.MARK));
         addRenderableWidget(button("Build now", x + 208, y, 60, MenuIds.BUILD_NOW));
+        y += 24;
+        addRenderableWidget(button("Scaffold: " + view.scaffold(), x, y, 160, MenuIds.SCAFFOLD));
     }
 
     private void initPermissions(int x, int y) {

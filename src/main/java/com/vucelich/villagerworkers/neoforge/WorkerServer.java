@@ -242,6 +242,7 @@ public final class WorkerServer {
                 data.setBuilder(data.builder().withFile(java.util.Optional.of(file)));
                 serverPlayer.sendSystemMessage(Component.literal("Schematic file set to " + file + ". Mark an anchor, then start."));
             }
+            case MenuIds.SCAFFOLD -> data.setBuilder(data.builder().withScaffold(data.builder().scaffold().next()));
             case MenuIds.BUILD_NOW -> {
                 if (!SchematicBuild.buildNowAllowed(serverPlayer.isCreative(), true)) {
                     serverPlayer.sendSystemMessage(Component.literal("Build now is creative mode only."));

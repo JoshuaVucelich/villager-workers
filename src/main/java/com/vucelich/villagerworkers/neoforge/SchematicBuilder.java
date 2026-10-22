@@ -2,6 +2,8 @@ package com.vucelich.villagerworkers.neoforge;
 
 import com.vucelich.villagerworkers.common.ActionPace;
 import com.vucelich.villagerworkers.common.ProblemCode;
+import com.vucelich.villagerworkers.common.ScaffoldPlan;
+import com.vucelich.villagerworkers.common.ScaffoldPreference;
 import com.vucelich.villagerworkers.common.SchematicBuild;
 import com.vucelich.villagerworkers.common.SchematicBuild.Cell;
 import com.vucelich.villagerworkers.common.WorkerActivity;
@@ -46,6 +48,9 @@ public final class SchematicBuilder {
         int index;
         long cooldownUntil;
         BlockPos walkTo;
+        boolean clearing;
+        final List<BlockPos> posts = new ArrayList<>();
+        final List<String> postItems = new ArrayList<>();
     }
 
     private SchematicBuilder() {}
@@ -87,6 +92,9 @@ public final class SchematicBuilder {
                 continue;
             }
             if (villager.distanceToSqr(Vec3.atCenterOf(pos)) > ActionPace.REACH_SQR) {
+                if (raise(level, villager, data, cursor, pos)) {
+                    return;
+                }
                 cursor.walkTo = pos.immutable();
                 villager.getNavigation().moveTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, 0.6);
                 return;
@@ -117,6 +125,9 @@ public final class SchematicBuilder {
             placed++;
         }
         if (cursor.index >= mine.size()) {
+            if (clearOne(level, villager, data, cursor)) {
+                return;
+            }
             data.setActivity(WorkerActivity.STOPPED);
             villager.getNavigation().stop();
             return;
@@ -190,6 +201,141 @@ public final class SchematicBuilder {
         List<Cell> cells = SchematicBuild.sequence(loaded);
         CACHE.put(file, cells);
         return cells;
+    }
+
+    private static boolean raise(ServerLevel level, Villager villager, WorkerData data, Cursor cursor, BlockPos target) {
+        List<BlockPos> stair = ScaffoldPlan.stair(villager.blockPosition(), target);
+        BlockPos next = ScaffoldPlan.nextOpen(stair, cursor.posts);
+        if (next == null) {
+            return false;
+        }
+        boolean vanilla = has(villager, data, ScaffoldPreference.VANILLA_ID);
+        boolean andesite = has(villager, data, ScaffoldPreference.ANDESITE_ID);
+        boolean spare = spareItem(villager, data) != null;
+        String choice = ScaffoldPlan.choose(data.builder().scaffold(), vanilla, andesite, spare);
+        if (choice.isEmpty()) {
+            pause(villager, data, ProblemCode.OUT_OF_MATERIALS, data.builder().scaffold().needed());
+            return true;
+        }
+        String itemId = "spare".equals(choice) ? spareItem(villager, data) : choice;
+        if (itemId == null || !take(villager, data, List.of(itemId))) {
+            pause(villager, data, ProblemCode.OUT_OF_MATERIALS, data.builder().scaffold().needed());
+            return true;
+        }
+        BlockState state = blockState(itemId);
+        if (state == null) {
+            return true;
+        }
+        level.setBlock(next, state, Block.UPDATE_ALL);
+        cursor.posts.add(next.immutable());
+        cursor.postItems.add(itemId);
+        cursor.cooldownUntil = level.getGameTime() + ActionPace.ticksBetweenActions(data.rested());
+        return true;
+    }
+
+    private static boolean clearOne(ServerLevel level, Villager villager, WorkerData data, Cursor cursor) {
+        if (cursor.posts.isEmpty()) {
+            return false;
+        }
+        List<BlockPos> order = ScaffoldPlan.topDown(cursor.posts);
+        BlockPos top = order.get(0);
+        int index = cursor.posts.indexOf(top);
+        String itemId = index >= 0 && index < cursor.postItems.size() ? cursor.postItems.get(index) : ScaffoldPreference.VANILLA_ID;
+        if (index >= 0) {
+            cursor.posts.remove(index);
+            if (index < cursor.postItems.size()) {
+                cursor.postItems.remove(index);
+            }
+        }
+        if (level.getBlockState(top).isAir()) {
+            return true;
+        }
+        level.destroyBlock(top, false);
+        Item item = item(itemId);
+        if (item != null) {
+            ItemStack stack = new ItemStack(item);
+            ItemStack left = ContainerAccess.insert(villager.getInventory(), stack);
+            for (Container chest : chests(villager, data)) {
+                if (left.isEmpty()) {
+                    break;
+                }
+                left = ContainerAccess.insert(chest, left);
+            }
+            if (!left.isEmpty()) {
+                villager.spawnAtLocation(left);
+            }
+        }
+        return true;
+    }
+
+    private static boolean has(Villager villager, WorkerData data, String itemId) {
+        Item item = item(itemId);
+        if (item == null) {
+            return false;
+        }
+        if (count(villager.getInventory(), item) > 0) {
+            return true;
+        }
+        for (Container chest : chests(villager, data)) {
+            if (count(chest, item) > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int count(Container container, Item item) {
+        int total = 0;
+        if (container == null) {
+            return 0;
+        }
+        for (int slot = 0; slot < container.getContainerSize(); slot++) {
+            ItemStack stack = container.getItem(slot);
+            if (stack.is(item)) {
+                total += stack.getCount();
+            }
+        }
+        return total;
+    }
+
+    private static String spareItem(Villager villager, WorkerData data) {
+        String found = spareIn(villager.getInventory());
+        if (found != null) {
+            return found;
+        }
+        for (Container chest : chests(villager, data)) {
+            found = spareIn(chest);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private static String spareIn(Container container) {
+        if (container == null) {
+            return null;
+        }
+        for (int slot = 0; slot < container.getContainerSize(); slot++) {
+            ItemStack stack = container.getItem(slot);
+            if (stack.isEmpty() || !(stack.getItem() instanceof net.minecraft.world.item.BlockItem) || stack.isDamageableItem()) {
+                continue;
+            }
+            String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+            if (ScaffoldPreference.VANILLA_ID.equals(id) || ScaffoldPreference.ANDESITE_ID.equals(id)) {
+                continue;
+            }
+            return id;
+        }
+        return null;
+    }
+
+    private static BlockState blockState(String itemId) {
+        Item item = item(itemId);
+        if (item instanceof net.minecraft.world.item.BlockItem blockItem) {
+            return blockItem.getBlock().defaultBlockState();
+        }
+        return null;
     }
 
     private static List<String> needed(BlockState state, Cell cell) {
