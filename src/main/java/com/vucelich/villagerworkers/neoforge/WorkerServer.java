@@ -2,6 +2,8 @@ package com.vucelich.villagerworkers.neoforge;
 
 import com.vucelich.villagerworkers.common.ActivityRules;
 import com.vucelich.villagerworkers.common.ChatCommands;
+import com.vucelich.villagerworkers.common.CrewLogic;
+import com.vucelich.villagerworkers.common.ScaffoldKinds;
 import com.vucelich.villagerworkers.common.MinerConfig;
 import com.vucelich.villagerworkers.common.MinerMode;
 import com.vucelich.villagerworkers.common.SetupLimits;
@@ -18,6 +20,9 @@ import com.vucelich.villagerworkers.neoforge.ModPayloads.AddTrustedPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.PermissionsView;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.Person;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.RemoveTrustedPayload;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.AssignForemanPayload;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.CrewCommandPayload;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.GiveWorkerPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.TransferOwnerPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.UpdateLumberjackPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.UpdateMinerPayload;
@@ -333,8 +338,23 @@ public final class WorkerServer {
                     serverPlayer.sendSystemMessage(Component.literal("This worker is not a foreman."));
                 } else {
                     data.setRank(WorkerRank.WORKER);
+                    releaseCrew(villager);
                     WorkerAttachments.applyLook(villager, data);
                     serverPlayer.sendSystemMessage(Component.literal(displayName(villager) + " is a worker again."));
+                }
+            }
+            case MenuIds.CYCLE_SCAFFOLD -> cycleScaffold(serverPlayer, villager, data);
+            case MenuIds.TOGGLE_PLAIN -> {
+                if (!mayEditOwnRules(serverPlayer, data)) {
+                    break;
+                }
+                data.setPlainBlocks(!data.plainBlocks());
+                spreadScaffold(serverPlayer, villager, data);
+            }
+            case MenuIds.TOGGLE_OVERRIDE -> {
+                data.setRulesOverride(!data.rulesOverride());
+                if (!data.rulesOverride()) {
+                    copyForemanRules(villager, data);
                 }
             }
             default -> {
@@ -530,6 +550,168 @@ public final class WorkerServer {
         sendPermissions(serverPlayer, villager, data);
     }
 
+    public static void assignForeman(Player player, AssignForemanPayload payload) {
+        if (!(player instanceof ServerPlayer serverPlayer)) {
+            return;
+        }
+        Villager open = openWorker(serverPlayer);
+        if (open == null || payload == null) {
+            return;
+        }
+        Villager subject = subject(serverPlayer, open, payload.villagerId());
+        WorkerData data = subject == null ? null : editable(serverPlayer, subject);
+        if (data == null) {
+            return;
+        }
+        if (!payload.assign()) {
+            if (!mayChangeCrewLink(open, subject, data)) {
+                deny(serverPlayer);
+                return;
+            }
+            data.setForeman(null);
+            serverPlayer.sendSystemMessage(Component.literal(displayName(subject) + " is off the crew."));
+            refresh(serverPlayer, open);
+            return;
+        }
+        Villager foreman = findWorker(serverPlayer, payload.foremanId());
+        WorkerData foremanData = foreman == null ? null : WorkerAttachments.get(foreman).orElse(null);
+        if (foremanData == null || foremanData.rank() != WorkerRank.FOREMAN) {
+            serverPlayer.sendSystemMessage(Component.literal("That foreman is not here."));
+            return;
+        }
+        if (!allows(foremanData, serverPlayer, WorkerAction.EDIT_SETUP)) {
+            deny(serverPlayer);
+            return;
+        }
+        if (!CrewLogic.canAssign(data.rank(), subject.getUUID(), foreman.getUUID())) {
+            serverPlayer.sendSystemMessage(Component.literal("A foreman cannot join a crew."));
+            return;
+        }
+        if (!mayChangeCrewLink(open, subject, data) && open != foreman) {
+            deny(serverPlayer);
+            return;
+        }
+        data.setForeman(foreman.getUUID());
+        if (!data.rulesOverride()) {
+            CrewLogic.applyScaffoldRule(foremanData, List.of(data));
+        }
+        serverPlayer.sendSystemMessage(Component.literal(displayName(subject) + " now reports to " + displayName(foreman) + "."));
+        refresh(serverPlayer, open);
+    }
+
+    public static void crewCommand(Player player, CrewCommandPayload payload) {
+        if (!(player instanceof ServerPlayer serverPlayer) || payload == null) {
+            return;
+        }
+        Villager open = openWorker(serverPlayer);
+        WorkerData foremanData = open == null ? null : guarded(serverPlayer, open, WorkerAction.SET_ACTIVITY);
+        if (foremanData == null || !open.getUUID().equals(payload.villagerId()) || foremanData.rank() != WorkerRank.FOREMAN) {
+            deny(serverPlayer);
+            return;
+        }
+        List<UUID> crew = new ArrayList<>();
+        for (Villager member : crewOf(open)) {
+            crew.add(member.getUUID());
+        }
+        List<UUID> targets = CrewLogic.targets(CrewLogic.Scope.byId(payload.scope()), open.getUUID(), crew, payload.picked());
+        int changed = 0;
+        for (UUID id : targets) {
+            Villager target = id.equals(open.getUUID()) ? open : findWorker(serverPlayer, id);
+            WorkerData data = target == null ? null : WorkerAttachments.get(target).orElse(null);
+            if (data == null || !allows(data, serverPlayer, WorkerAction.SET_ACTIVITY)) {
+                continue;
+            }
+            if (applyVerb(serverPlayer, target, data, payload.verb())) {
+                changed++;
+            }
+        }
+        serverPlayer.sendSystemMessage(Component.literal("Command reached " + changed + " of " + targets.size() + "."));
+        refresh(serverPlayer, open);
+    }
+
+    public static void giveWorker(Player player, GiveWorkerPayload payload) {
+        if (!(player instanceof ServerPlayer serverPlayer) || payload == null) {
+            return;
+        }
+        Villager open = openWorker(serverPlayer);
+        Villager subject = subject(serverPlayer, open, payload.villagerId());
+        WorkerData data = subject == null ? null : WorkerAttachments.get(subject).orElse(null);
+        if (data == null || !allows(data, serverPlayer, WorkerAction.TRANSFER_OWNER)) {
+            deny(serverPlayer);
+            return;
+        }
+        if (!mayChangeCrewLink(open, subject, data) && open != subject) {
+            deny(serverPlayer);
+            return;
+        }
+        ServerPlayer target = serverPlayer.server.getPlayerList().getPlayer(payload.newOwner());
+        if (target == null) {
+            serverPlayer.sendSystemMessage(Component.literal("That player is not online."));
+            return;
+        }
+        if (target.level() != subject.level()) {
+            serverPlayer.sendSystemMessage(Component.literal("That player must be in the same dimension."));
+            return;
+        }
+        if (target.getUUID().equals(data.owner())) {
+            serverPlayer.sendSystemMessage(Component.literal("That player already owns this worker."));
+            return;
+        }
+        data.removeTrusted(target.getUUID());
+        data.setOwner(target.getUUID());
+        String workerName = displayName(subject);
+        serverPlayer.sendSystemMessage(Component.literal("Ownership of " + workerName + " was transferred."));
+        target.sendSystemMessage(Component.literal(workerName + " is now your worker."));
+        refresh(serverPlayer, open);
+    }
+
+    /** Foremen the viewer may edit, workers with no foreman, and this foreman's crew. Tab-separated uuid and name. */
+    public static CrewDirectory directory(Villager self, WorkerData data, Player viewer) {
+        String foremanLabel = "none";
+        StringBuilder foremen = new StringBuilder();
+        StringBuilder unassigned = new StringBuilder();
+        StringBuilder crew = new StringBuilder();
+        if (viewer instanceof ServerPlayer serverPlayer && self.level() instanceof ServerLevel level) {
+            UUID boss = data.foreman();
+            int foremanCount = 0;
+            int unassignedCount = 0;
+            int crewCount = 0;
+            for (Villager other : loadedWorkers(level)) {
+                WorkerData otherData = WorkerAttachments.get(other).orElse(null);
+                if (otherData == null) {
+                    continue;
+                }
+                if (boss != null && other.getUUID().equals(boss)) {
+                    foremanLabel = displayName(other);
+                }
+                if (other == self || !allows(otherData, serverPlayer, WorkerAction.EDIT_SETUP)) {
+                    continue;
+                }
+                if (otherData.rank() == WorkerRank.FOREMAN && foremanCount < 8) {
+                    line(foremen, other);
+                    foremanCount++;
+                } else if (otherData.rank() == WorkerRank.WORKER && otherData.foreman() == null && unassignedCount < 8) {
+                    line(unassigned, other);
+                    unassignedCount++;
+                }
+                if (self.getUUID().equals(otherData.foreman()) && crewCount < 12) {
+                    line(crew, other);
+                    crewCount++;
+                }
+            }
+        }
+        return new CrewDirectory(foremanLabel, foremen.toString(), unassigned.toString(), crew.toString());
+    }
+
+    public record CrewDirectory(String foremanLabel, String foremen, String unassigned, String crew) {}
+
+    private static void line(StringBuilder builder, Villager villager) {
+        if (!builder.isEmpty()) {
+            builder.append('\n');
+        }
+        builder.append(villager.getUUID()).append('\t').append(displayName(villager));
+    }
+
     public static void transfer(Player player, TransferOwnerPayload payload) {
         if (!(player instanceof ServerPlayer serverPlayer)) {
             return;
@@ -718,5 +900,132 @@ public final class WorkerServer {
 
     private static void deny(ServerPlayer player) {
         player.sendSystemMessage(Component.literal("You cannot do that."));
+    }
+
+    private static Villager openWorker(ServerPlayer player) {
+        if (!(player.containerMenu instanceof WorkerMenu menu)) {
+            deny(player);
+            return null;
+        }
+        return guarded(player, menu.villager(), WorkerAction.OPEN_SCREEN) == null ? null : menu.villager();
+    }
+
+    private static Villager subject(ServerPlayer player, Villager open, UUID villagerId) {
+        if (open == null || villagerId == null) {
+            deny(player);
+            return null;
+        }
+        if (open.getUUID().equals(villagerId)) {
+            return open;
+        }
+        Villager found = findWorker(player, villagerId);
+        if (found == null || found.level() != open.level()) {
+            player.sendSystemMessage(Component.literal("That worker is not here."));
+            return null;
+        }
+        return found;
+    }
+
+    private static WorkerData editable(ServerPlayer player, Villager villager) {
+        WorkerData data = WorkerAttachments.get(villager).orElse(null);
+        if (data == null || !allows(data, player, WorkerAction.EDIT_SETUP)) {
+            deny(player);
+            return null;
+        }
+        return data;
+    }
+
+    private static boolean mayChangeCrewLink(Villager open, Villager subject, WorkerData data) {
+        if (open == subject) {
+            return true;
+        }
+        WorkerData openData = WorkerAttachments.get(open).orElse(null);
+        if (openData == null || openData.rank() != WorkerRank.FOREMAN) {
+            return false;
+        }
+        return data.foreman() == null || open.getUUID().equals(data.foreman());
+    }
+
+    private static List<Villager> crewOf(Villager foreman) {
+        List<Villager> crew = new ArrayList<>();
+        if (!(foreman.level() instanceof ServerLevel level)) {
+            return crew;
+        }
+        for (Villager other : loadedWorkers(level)) {
+            WorkerData data = WorkerAttachments.get(other).orElse(null);
+            if (data != null && foreman.getUUID().equals(data.foreman())) {
+                crew.add(other);
+            }
+        }
+        return crew;
+    }
+
+    private static void releaseCrew(Villager foreman) {
+        for (Villager member : crewOf(foreman)) {
+            WorkerAttachments.get(member).ifPresent(data -> data.setForeman(null));
+        }
+    }
+
+    private static boolean mayEditOwnRules(ServerPlayer player, WorkerData data) {
+        if (data.rank() == WorkerRank.FOREMAN || data.rulesOverride()) {
+            return true;
+        }
+        player.sendSystemMessage(Component.literal("Turn on own rules to change scaffolding for this worker."));
+        return false;
+    }
+
+    private static void cycleScaffold(ServerPlayer player, Villager villager, WorkerData data) {
+        if (!mayEditOwnRules(player, data)) {
+            return;
+        }
+        List<ScaffoldKinds> order = new ArrayList<>(ScaffoldKinds.parse(data.scaffoldOrder(), false));
+        if (!order.isEmpty()) {
+            order.add(order.remove(0));
+        }
+        data.setScaffoldOrder(ScaffoldKinds.format(order));
+        spreadScaffold(player, villager, data);
+    }
+
+    private static void spreadScaffold(ServerPlayer player, Villager villager, WorkerData data) {
+        if (data.rank() != WorkerRank.FOREMAN) {
+            return;
+        }
+        List<WorkerData> members = new ArrayList<>();
+        for (Villager member : crewOf(villager)) {
+            WorkerAttachments.get(member).ifPresent(members::add);
+        }
+        int updated = CrewLogic.applyScaffoldRule(data, members);
+        player.sendSystemMessage(Component.literal("Scaffold rule reached " + updated + " crew members."));
+    }
+
+    private static void copyForemanRules(Villager villager, WorkerData data) {
+        if (data.foreman() == null || !(villager.level() instanceof ServerLevel level)) {
+            return;
+        }
+        Entity boss = level.getEntity(data.foreman());
+        if (boss instanceof Villager foreman) {
+            WorkerAttachments.get(foreman).ifPresent(foremanData -> CrewLogic.applyScaffoldRule(foremanData, List.of(data)));
+        }
+    }
+
+    private static boolean applyVerb(ServerPlayer player, Villager villager, WorkerData data, String verb) {
+        String word = verb == null ? "" : verb.toLowerCase(java.util.Locale.ROOT);
+        switch (word) {
+            case "come" -> data.comeTo(player.getUUID());
+            case "stop", "stay" -> data.setActivity(ActivityRules.afterStop());
+            case "start", "work", "resume" -> {
+                java.util.Optional<WorkerActivity> next = ActivityRules.afterResume(
+                        data.job(), net.neoforged.fml.ModList.get().isLoaded("create"));
+                if (next.isEmpty()) {
+                    player.sendSystemMessage(Component.literal("Create is required before this worker can build."));
+                    return false;
+                }
+                data.setActivity(next.get());
+            }
+            default -> {
+                return false;
+            }
+        }
+        return true;
     }
 }

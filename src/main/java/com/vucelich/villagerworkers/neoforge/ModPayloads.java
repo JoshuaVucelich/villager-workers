@@ -36,6 +36,12 @@ public final class ModPayloads {
                 WorkerServer.removeTrusted(context.player(), payload));
         registrar.playToServer(TransferOwnerPayload.TYPE, TransferOwnerPayload.STREAM_CODEC, (payload, context) ->
                 WorkerServer.transfer(context.player(), payload));
+        registrar.playToServer(AssignForemanPayload.TYPE, AssignForemanPayload.STREAM_CODEC, (payload, context) ->
+                WorkerServer.assignForeman(context.player(), payload));
+        registrar.playToServer(CrewCommandPayload.TYPE, CrewCommandPayload.STREAM_CODEC, (payload, context) ->
+                WorkerServer.crewCommand(context.player(), payload));
+        registrar.playToServer(GiveWorkerPayload.TYPE, GiveWorkerPayload.STREAM_CODEC, (payload, context) ->
+                WorkerServer.giveWorker(context.player(), payload));
         if (FMLEnvironment.dist == Dist.CLIENT) {
             ClientPayloadHandlers.register(registrar);
         } else {
@@ -248,6 +254,51 @@ public final class ModPayloads {
     }
 
     public record Person(UUID id, String name) {}
+
+    /** Assigns the open worker, or a crew member, to a foreman. {@code assign} false clears the foreman. */
+    public record AssignForemanPayload(UUID villagerId, UUID foremanId, boolean assign) implements CustomPacketPayload {
+        public static final Type<AssignForemanPayload> TYPE = ModPayloads.payloadType("assign_foreman");
+        public static final StreamCodec<RegistryFriendlyByteBuf, AssignForemanPayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, AssignForemanPayload::villagerId,
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, AssignForemanPayload::foremanId,
+                ByteBufCodecs.BOOL, AssignForemanPayload::assign,
+                AssignForemanPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /** Come, stop, start, or resume. Scope is foreman, crew, or ticked. */
+    public record CrewCommandPayload(UUID villagerId, String verb, String scope, List<UUID> picked) implements CustomPacketPayload {
+        public static final Type<CrewCommandPayload> TYPE = ModPayloads.payloadType("crew_command");
+        public static final StreamCodec<RegistryFriendlyByteBuf, CrewCommandPayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, CrewCommandPayload::villagerId,
+                ByteBufCodecs.STRING_UTF8, CrewCommandPayload::verb,
+                ByteBufCodecs.STRING_UTF8, CrewCommandPayload::scope,
+                net.minecraft.core.UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs.list()), CrewCommandPayload::picked,
+                CrewCommandPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /** Hands sole ownership of a crew member to an online player. */
+    public record GiveWorkerPayload(UUID villagerId, UUID newOwner) implements CustomPacketPayload {
+        public static final Type<GiveWorkerPayload> TYPE = ModPayloads.payloadType("give_worker");
+        public static final StreamCodec<RegistryFriendlyByteBuf, GiveWorkerPayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, GiveWorkerPayload::villagerId,
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, GiveWorkerPayload::newOwner,
+                GiveWorkerPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
 
     private static <T extends CustomPacketPayload> CustomPacketPayload.Type<T> payloadType(String path) {
         return new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(VillagerWorkers.MOD_ID, path));

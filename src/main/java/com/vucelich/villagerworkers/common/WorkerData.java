@@ -122,6 +122,13 @@ public final class WorkerData {
     private final List<ResourceLocation> breakWhitelist = new ArrayList<>();
     private WorkerProblem problem = WorkerProblem.NONE;
     private WorkerRank rank = WorkerRank.WORKER;
+    /** Villager UUID of the foreman this worker reports to. Empty when unassigned. */
+    private UUID foreman;
+    /** When true, crew rules on the foreman do not replace this worker's own rules. */
+    private boolean rulesOverride;
+    /** Comma-separated scaffold kinds. Empty means the default order. */
+    private String scaffoldOrder = "";
+    private boolean plainBlocks;
     private UUID comeTarget;
     private final List<WorkNotice> notices = new ArrayList<>();
     private long hungryNotifiedAt = Long.MIN_VALUE;
@@ -198,6 +205,10 @@ public final class WorkerData {
         data.breakWhitelist.addAll(breakWhitelist);
         data.problem = problem;
         data.rank = WorkerRank.byId(alerts.rank());
+        data.foreman = alerts.foreman() == null ? null : alerts.foreman().orElse(null);
+        data.rulesOverride = alerts.rulesOverride();
+        data.scaffoldOrder = alerts.scaffoldOrder() == null ? "" : alerts.scaffoldOrder();
+        data.plainBlocks = alerts.plainBlocks();
         data.comeTarget = comeTarget.orElse(null);
         if (alerts.notices() != null) {
             data.notices.addAll(alerts.notices());
@@ -297,11 +308,20 @@ public final class WorkerData {
 
     private AlertBookkeeping alerts() {
         return new AlertBookkeeping(
-                hungryNotifiedAt, hurtNotifiedAt, hungryPending, hurtPending, List.copyOf(notices), rank.id());
+                hungryNotifiedAt,
+                hurtNotifiedAt,
+                hungryPending,
+                hurtPending,
+                List.copyOf(notices),
+                rank.id(),
+                Optional.ofNullable(foreman),
+                rulesOverride,
+                scaffoldOrder,
+                plainBlocks);
     }
 
     /**
-     * Hunger, injury, work notices, and rank. Nested so the worker codec stays within Mojang's 16-field record limit.
+     * Hunger, injury, work notices, rank, and crew. Nested so the worker codec stays within Mojang's 16-field record limit.
      */
     public record AlertBookkeeping(
             long hungryNotifiedAt,
@@ -309,9 +329,22 @@ public final class WorkerData {
             boolean hungryPending,
             boolean hurtPending,
             List<WorkNotice> notices,
-            String rank) {
-        public static final AlertBookkeeping NONE =
-                new AlertBookkeeping(Long.MIN_VALUE, Long.MIN_VALUE, false, false, List.of(), WorkerRank.WORKER.id());
+            String rank,
+            Optional<UUID> foreman,
+            boolean rulesOverride,
+            String scaffoldOrder,
+            boolean plainBlocks) {
+        public static final AlertBookkeeping NONE = new AlertBookkeeping(
+                Long.MIN_VALUE,
+                Long.MIN_VALUE,
+                false,
+                false,
+                List.of(),
+                WorkerRank.WORKER.id(),
+                Optional.empty(),
+                false,
+                "",
+                false);
 
         public static final Codec<AlertBookkeeping> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.LONG.optionalFieldOf("hungry_notified_at", Long.MIN_VALUE).forGetter(AlertBookkeeping::hungryNotifiedAt),
@@ -319,7 +352,11 @@ public final class WorkerData {
                 Codec.BOOL.optionalFieldOf("hungry_pending", false).forGetter(AlertBookkeeping::hungryPending),
                 Codec.BOOL.optionalFieldOf("hurt_pending", false).forGetter(AlertBookkeeping::hurtPending),
                 WorkNotice.CODEC.listOf().optionalFieldOf("notices", List.of()).forGetter(AlertBookkeeping::notices),
-                Codec.STRING.optionalFieldOf("rank", WorkerRank.WORKER.id()).forGetter(AlertBookkeeping::rank)
+                Codec.STRING.optionalFieldOf("rank", WorkerRank.WORKER.id()).forGetter(AlertBookkeeping::rank),
+                UUIDUtil.STRING_CODEC.optionalFieldOf("foreman").forGetter(AlertBookkeeping::foreman),
+                Codec.BOOL.optionalFieldOf("rules_override", false).forGetter(AlertBookkeeping::rulesOverride),
+                Codec.STRING.optionalFieldOf("scaffold_order", "").forGetter(AlertBookkeeping::scaffoldOrder),
+                Codec.BOOL.optionalFieldOf("plain_blocks", false).forGetter(AlertBookkeeping::plainBlocks)
         ).apply(instance, AlertBookkeeping::new));
     }
 
@@ -329,6 +366,38 @@ public final class WorkerData {
 
     public void setRank(WorkerRank rank) {
         this.rank = rank == null ? WorkerRank.WORKER : rank;
+    }
+
+    public UUID foreman() {
+        return foreman;
+    }
+
+    public void setForeman(UUID foreman) {
+        this.foreman = foreman;
+    }
+
+    public boolean rulesOverride() {
+        return rulesOverride;
+    }
+
+    public void setRulesOverride(boolean rulesOverride) {
+        this.rulesOverride = rulesOverride;
+    }
+
+    public String scaffoldOrder() {
+        return scaffoldOrder == null ? "" : scaffoldOrder;
+    }
+
+    public void setScaffoldOrder(String scaffoldOrder) {
+        this.scaffoldOrder = scaffoldOrder == null ? "" : scaffoldOrder;
+    }
+
+    public boolean plainBlocks() {
+        return plainBlocks;
+    }
+
+    public void setPlainBlocks(boolean plainBlocks) {
+        this.plainBlocks = plainBlocks;
     }
 
     public UUID owner() {

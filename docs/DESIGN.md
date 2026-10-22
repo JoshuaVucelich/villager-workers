@@ -42,6 +42,14 @@ Gear is drawn on the client. It is not armor and it is not an item in the villag
 
 A villager who was never hired has no look attachment and no hat. Death does not copy either attachment. A baby has neither.
 
+## Crews
+
+A worker may store the UUID of one foreman. A foreman is not a member of a crew. The worker screen lists foremen the player may edit, by name, next to the existing people controls. The foreman screen lists unassigned workers the player may edit, and the current crew.
+
+For each crew member the foreman screen can unassign them, move them to another foreman, call them, or hand sole ownership to an online player in the same dimension. Come, stay, and work each have three targets: the foreman only, the foreman plus the whole crew, or the ticked members. A ticked id that is not on that crew is ignored.
+
+Scaffold preference is a saved order (`andesite`, `vanilla`, `spare`) plus a plain-blocks flag. The default order is andesite scaffolding, then vanilla scaffolding, then spare blocks. Changing it on the foreman copies it onto every loaded crew member whose own-rules flag is off. A member with own rules on keeps their order. Placement of scaffolding is a later milestone. This milestone only stores and copies the rule.
+
 ## Hiring
 
 1. A player uses a name tag on an adult villager. Vanilla consumes the tag and sets the custom name.

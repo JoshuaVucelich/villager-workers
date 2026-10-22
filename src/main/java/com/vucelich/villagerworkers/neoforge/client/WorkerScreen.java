@@ -6,7 +6,11 @@ import com.vucelich.villagerworkers.neoforge.MenuIds;
 import com.vucelich.villagerworkers.neoforge.ModPayloads;
 import com.vucelich.villagerworkers.neoforge.WorkerMenu;
 import com.vucelich.villagerworkers.neoforge.WorkerView;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.Tooltip;
@@ -28,6 +32,8 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     private int tab = TAB_JOB;
     private int valuablePage;
     private ModPayloads.PermissionsView permissionsView;
+    private final Set<UUID> ticked = new HashSet<>();
+    private boolean askedPeople;
 
     public WorkerScreen(WorkerMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
@@ -44,7 +50,6 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
 
     public void applyPermissions(ModPayloads.PermissionsView view) {
         this.permissionsView = view;
-        this.tab = TAB_SETTINGS;
         rebuildWidgets();
     }
 
@@ -87,6 +92,168 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         } else {
             addRenderableWidget(action("Promote to Foreman", "Orange hard hat, a clipboard, and a rolled blueprint.", x + 168, y, 90, MenuIds.PROMOTE));
         }
+        initCrew(view, x, y + 22);
+    }
+
+    private void initCrew(WorkerView view, int x, int y) {
+        boolean foreman = "foreman".equals(view.rank());
+        String order = view.scaffoldOrder() == null || view.scaffoldOrder().isEmpty() ? "andesite, vanilla, spare" : view.scaffoldOrder();
+        addRenderableWidget(action(
+                "Scaffold: " + shortName(order.replace(",", " ")),
+                "Rotate the scaffold preference. On a foreman this reaches the whole crew, except members using their own rules.",
+                x,
+                y,
+                150,
+                MenuIds.CYCLE_SCAFFOLD));
+        addRenderableWidget(action(
+                view.plainBlocks() ? "Plain blocks" : "Scaffold ok",
+                "Plain blocks uses spare blocks even when scaffolding is available.",
+                x + 154,
+                y,
+                90,
+                MenuIds.TOGGLE_PLAIN));
+        if (view.viewerIsOwner() && permissionsView == null && !askedPeople) {
+            askedPeople = true;
+            click(MenuIds.SHOW_PERMISSIONS);
+        }
+        if (!foreman) {
+            addRenderableWidget(action(
+                    view.rulesOverride() ? "Own rules: on" : "Own rules: off",
+                    "On: this worker keeps its own scaffold rule. Off: the foreman's crew rule applies.",
+                    x,
+                    y + 18,
+                    100,
+                    MenuIds.TOGGLE_OVERRIDE));
+            addRenderableWidget(Button.builder(Component.literal("Foreman: " + view.foremanLabel()), ignored -> {})
+                    .bounds(x + 104, y + 18, 140, 16)
+                    .tooltip(Tooltip.create(Component.literal("The foreman this worker reports to.")))
+                    .build());
+            int column = 0;
+            for (NamedId boss : parsePeople(view.foremenLine())) {
+                if (column >= 3) {
+                    break;
+                }
+                addRenderableWidget(Button.builder(Component.literal("Join " + boss.name()), ignored ->
+                                PacketDistributor.sendToServer(new ModPayloads.AssignForemanPayload(view.villagerId(), boss.id(), true)))
+                        .bounds(x + column * 84, y + 36, 80, 16)
+                        .tooltip(Tooltip.create(Component.literal("Assign this worker to " + boss.name() + ".")))
+                        .build());
+                column++;
+            }
+            if (!"none".equals(view.foremanLabel())) {
+                addRenderableWidget(Button.builder(Component.literal("Leave crew"), ignored ->
+                                PacketDistributor.sendToServer(new ModPayloads.AssignForemanPayload(view.villagerId(), view.villagerId(), false)))
+                        .bounds(x + column * 84, y + 36, 80, 16)
+                        .tooltip(Tooltip.create(Component.literal("Take this worker off the foreman's crew.")))
+                        .build());
+            }
+            return;
+        }
+        int row = 0;
+        for (NamedId worker : parsePeople(view.unassignedLine())) {
+            if (row >= 2) {
+                break;
+            }
+            addRenderableWidget(Button.builder(Component.literal("Add " + worker.name()), ignored ->
+                            PacketDistributor.sendToServer(new ModPayloads.AssignForemanPayload(worker.id(), view.villagerId(), true)))
+                    .bounds(x + row * 84, y + 18, 80, 16)
+                    .tooltip(Tooltip.create(Component.literal("Put " + worker.name() + " on this crew.")))
+                    .build());
+            row++;
+        }
+        row = 0;
+        List<NamedId> bosses = parsePeople(view.foremenLine());
+        for (NamedId member : parsePeople(view.crewLine())) {
+            if (row >= 3) {
+                break;
+            }
+            int rowY = y + 36 + row * 18;
+            boolean on = ticked.contains(member.id());
+            addRenderableWidget(Button.builder(Component.literal((on ? "[x] " : "[ ] ") + member.name()), ignored -> toggleTick(member.id()))
+                    .bounds(x, rowY, 70, 16)
+                    .tooltip(Tooltip.create(Component.literal("Tick " + member.name() + " for a ticked-members command.")))
+                    .build());
+            addRenderableWidget(Button.builder(Component.literal("Off"), ignored ->
+                            PacketDistributor.sendToServer(new ModPayloads.AssignForemanPayload(member.id(), view.villagerId(), false)))
+                    .bounds(x + 72, rowY, 32, 16)
+                    .tooltip(Tooltip.create(Component.literal("Unassign " + member.name() + ".")))
+                    .build());
+            addRenderableWidget(Button.builder(Component.literal("Come"), ignored ->
+                            PacketDistributor.sendToServer(new ModPayloads.CrewCommandPayload(view.villagerId(), "come", "ticked", List.of(member.id()))))
+                    .bounds(x + 106, rowY, 40, 16)
+                    .tooltip(Tooltip.create(Component.literal("Call " + member.name() + " over.")))
+                    .build());
+            if (!bosses.isEmpty()) {
+                NamedId next = bosses.get(row % bosses.size());
+                addRenderableWidget(Button.builder(Component.literal("To " + next.name()), ignored ->
+                                PacketDistributor.sendToServer(new ModPayloads.AssignForemanPayload(member.id(), next.id(), true)))
+                        .bounds(x + 148, rowY, 70, 16)
+                        .tooltip(Tooltip.create(Component.literal("Move " + member.name() + " to " + next.name() + ".")))
+                        .build());
+            }
+            row++;
+        }
+        int commandY = y + 36 + Math.min(2, parsePeople(view.crewLine()).size()) * 18;
+        addVerbRow(view, "Come", "come", x, commandY);
+        addVerbRow(view, "Stay", "stop", x, commandY + 18);
+        addVerbRow(view, "Work", "start", x, commandY + 36);
+        if (permissionsView != null && ticked.size() == 1 && view.viewerIsOwner()) {
+            UUID only = ticked.iterator().next();
+            int shown = 0;
+            for (ModPayloads.Person person : permissionsView.online()) {
+                if (shown >= 2 || person.name().equalsIgnoreCase(permissionsView.ownerName())) {
+                    continue;
+                }
+                addRenderableWidget(Button.builder(Component.literal("Give " + person.name()), ignored ->
+                                PacketDistributor.sendToServer(new ModPayloads.GiveWorkerPayload(only, person.id())))
+                        .bounds(x + shown * 90, commandY + 54, 86, 16)
+                        .tooltip(Tooltip.create(Component.literal("Transfer sole ownership of the ticked worker to " + person.name() + ".")))
+                        .build());
+                shown++;
+            }
+        }
+    }
+
+    private void addVerbRow(WorkerView view, String label, String verb, int x, int y) {
+        addRenderableWidget(scopeButton(view, label + " him", verb, "foreman", "Only the foreman.", x, y));
+        addRenderableWidget(scopeButton(view, label + " crew", verb, "crew", "The foreman and every crew member.", x + 78, y));
+        addRenderableWidget(scopeButton(view, label + " ticked", verb, "ticked", "Only the ticked crew members.", x + 164, y));
+    }
+
+    private Button scopeButton(WorkerView view, String label, String verb, String scope, String tip, int x, int y) {
+        return Button.builder(Component.literal(label), ignored -> PacketDistributor.sendToServer(
+                        new ModPayloads.CrewCommandPayload(view.villagerId(), verb, scope, new ArrayList<>(ticked))))
+                .bounds(x, y, 76, 16)
+                .tooltip(Tooltip.create(Component.literal(tip)))
+                .build();
+    }
+
+    private void toggleTick(UUID id) {
+        if (!ticked.add(id)) {
+            ticked.remove(id);
+        }
+        rebuildWidgets();
+    }
+
+    private record NamedId(UUID id, String name) {}
+
+    private static List<NamedId> parsePeople(String text) {
+        List<NamedId> people = new ArrayList<>();
+        if (text == null || text.isBlank()) {
+            return people;
+        }
+        for (String line : text.split("\n")) {
+            int tab = line.indexOf('\t');
+            if (tab <= 0) {
+                continue;
+            }
+            try {
+                people.add(new NamedId(UUID.fromString(line.substring(0, tab)), line.substring(tab + 1)));
+            } catch (IllegalArgumentException ignored) {
+                // Skip a line the server did not format.
+            }
+        }
+        return people;
     }
 
     private void initArea(WorkerView view, int x, int y) {

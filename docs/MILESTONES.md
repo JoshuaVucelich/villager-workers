@@ -2,7 +2,7 @@
 
 Issues to file for Villager Workers. Each one lists the title, scope, and acceptance criteria. The behavior they refer to is specified in [DESIGN.md](DESIGN.md).
 
-M1, M2, M3, and M4 are implemented. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
+M1 through M5 are implemented. M5 is crews. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
 
 Order is M1, then M2, then M3. Later issues may persist fields that an earlier issue defined, but they must not start a later milestone's job AI early.
 
@@ -228,3 +228,21 @@ Hiring a villager shows a yellow hard hat. The owner can promote that worker to 
 - The screen shows Promote to Foreman on a worker and Demote on a foreman.
 - A player who cannot edit the worker cannot promote or demote, including by menu button.
 - Clients draw the yellow hat for a worker and the orange hat, clipboard, and blueprint for a foreman. Unhired villagers have no hat.
+
+## M5 - Crews
+
+A worker can be assigned to one of your foremen. The foreman's screen lists unassigned workers and the current crew. Commands can target the foreman, the whole crew, or ticked members. A scaffold rule changed on the foreman is copied onto every member who has not turned on own rules.
+
+### Assign a crew and command it
+
+**Title:** Assign workers to a foreman and command the crew
+
+**Scope:** Store one foreman UUID on the worker. From the worker screen, pick a foreman by name, or leave the crew. From the foreman screen, add an unassigned worker, unassign, move to another foreman, call one member, give sole ownership of a ticked member, and run come, stay, and work for the foreman only, the whole crew, or the ticked members. Changing the scaffold order or the plain-blocks flag on the foreman updates every crew member in that same action, except members with own rules on. Do not run scaffold placement yet.
+
+**Acceptance criteria:**
+
+- A worker stores one foreman or none. A foreman cannot be assigned as a member. An older save with no foreman field stays unassigned.
+- Assign, unassign, and move change only that link, and only for a player who may edit both villagers.
+- Come, stay, and work accept foreman only, whole crew, and ticked members. A ticked id that is not on the crew is ignored.
+- One scaffold change on the foreman updates every member who has not opted out, and leaves an opted-out member alone.
+- The link and the rule reload with the world.

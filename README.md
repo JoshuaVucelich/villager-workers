@@ -2,7 +2,7 @@
 
 NeoForge mod for Minecraft 1.21.1. You rename a villager with a name tag and hire them as a worker. Workers stay villagers: they can die, heal by eating food, and breed. A baby is a normal villager.
 
-Hiring, ownership, the worker screen, chat commands, rest tracking, lumberjack, miner, and the Create schematic builder are implemented. Hired workers wear a yellow hard hat. A foreman wears an orange hard hat, holds a clipboard, and carries a rolled blueprint. See [docs/DESIGN.md](docs/DESIGN.md) and [docs/MILESTONES.md](docs/MILESTONES.md).
+Hiring, ownership, the worker screen, chat commands, rest tracking, lumberjack, miner, and the Create schematic builder are implemented. Hired workers wear a yellow hard hat. A foreman wears an orange hard hat, holds a clipboard, and carries a rolled blueprint. Workers can be assigned to a foreman, and the foreman can command the crew. See [docs/DESIGN.md](docs/DESIGN.md) and [docs/MILESTONES.md](docs/MILESTONES.md).
 
 The mod is aimed at a pack that also runs Create 6.0.x and Create Aeronautics. Create is an optional dependency: the mod loads without it, and the builder starts only when Create is installed. Workers must not break Create or Aeronautics blocks unless that worker's whitelist names the block.
 
@@ -18,7 +18,7 @@ The mod is aimed at a pack that also runs Create 6.0.x and Create Aeronautics. C
 ./gradlew build
 ```
 
-The mod jar is written to `build/libs/villager_workers-0.5.0.jar`.
+The mod jar is written to `build/libs/villager_workers-0.5.1.jar`.
 
 A development client:
 

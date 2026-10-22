@@ -48,7 +48,14 @@ public record WorkerView(
         String schematic,
         String materialChests,
         boolean useValuables,
-        String rank) {
+        String rank,
+        String foremanLabel,
+        String foremenLine,
+        String unassignedLine,
+        String crewLine,
+        String scaffoldOrder,
+        boolean plainBlocks,
+        boolean rulesOverride) {
     public static final StreamCodec<RegistryFriendlyByteBuf, WorkerView> STREAM_CODEC = StreamCodec.of(
             (buf, view) -> view.write(buf),
             WorkerView::read);
@@ -62,6 +69,7 @@ public record WorkerView(
         String area = (data.job() == com.vucelich.villagerworkers.common.WorkerJob.MINER ? miner.area() : lumber.area())
                 .map(a -> a.format())
                 .orElse("not marked");
+        WorkerServer.CrewDirectory crew = WorkerServer.directory(villager, data, viewer);
         return new WorkerView(
                 villager.getUUID(),
                 villager.getId(),
@@ -101,7 +109,14 @@ public record WorkerView(
                         ? "none"
                         : builder.materialChests().stream().map(WorkerView::pos).collect(Collectors.joining(", ")),
                 miner.useValuables(),
-                data.rank().id());
+                data.rank().id(),
+                crew.foremanLabel(),
+                crew.foremen(),
+                crew.unassigned(),
+                crew.crew(),
+                data.scaffoldOrder(),
+                data.plainBlocks(),
+                data.rulesOverride());
     }
 
     private static String pos(Optional<BlockPos> pos) {
@@ -150,6 +165,13 @@ public record WorkerView(
         buf.writeUtf(materialChests);
         buf.writeBoolean(useValuables);
         buf.writeUtf(rank);
+        buf.writeUtf(foremanLabel);
+        buf.writeUtf(foremenLine);
+        buf.writeUtf(unassignedLine);
+        buf.writeUtf(crewLine);
+        buf.writeUtf(scaffoldOrder);
+        buf.writeBoolean(plainBlocks);
+        buf.writeBoolean(rulesOverride);
     }
 
     public static WorkerView read(RegistryFriendlyByteBuf buf) {
@@ -190,6 +212,13 @@ public record WorkerView(
                 buf.readUtf(),
                 buf.readUtf(),
                 buf.readBoolean(),
-                buf.readUtf());
+                buf.readUtf(),
+                buf.readUtf(),
+                buf.readUtf(),
+                buf.readUtf(),
+                buf.readUtf(),
+                buf.readUtf(),
+                buf.readBoolean(),
+                buf.readBoolean());
     }
 }
