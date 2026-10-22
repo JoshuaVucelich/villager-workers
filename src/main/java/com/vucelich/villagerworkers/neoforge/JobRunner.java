@@ -107,6 +107,8 @@ public final class JobRunner {
         long rescanAt;
         boolean leftWork;
         boolean shipGuardNoted;
+        /** Game time when an offline owner may be checked again. Earlier ticks do no scan. */
+        long ownerAwayUntil;
     }
 
     private JobRunner() {}
@@ -152,6 +154,15 @@ public final class JobRunner {
         } else if (resume) {
             restartPass(runtime);
         }
+        if (waitsForOwner(data) && owner(villager, data) == null) {
+            long now = level.getGameTime();
+            if (now < runtime.ownerAwayUntil) {
+                return;
+            }
+            runtime.ownerAwayUntil = now + WorkerSettings.offlineOwnerBackoffTicks();
+            return;
+        }
+        runtime.ownerAwayUntil = 0L;
         AssemblyGuards.poll(level);
         if (AssemblyGuards.shipGuardFailed() || AssemblyGuards.plotHandleBroken()) {
             if (!runtime.shipGuardNoted) {
@@ -240,6 +251,9 @@ public final class JobRunner {
             }
             if (runtime.stuckSince != Long.MIN_VALUE) {
                 runtime.stuckSince++;
+            }
+            if (runtime.ownerAwayUntil != 0L) {
+                runtime.ownerAwayUntil++;
             }
         }
         StructureBuilder.freezeWhileHeld(villager.getUUID());
@@ -449,6 +463,11 @@ public final class JobRunner {
             }
         }
         return null;
+    }
+
+    /** Miners and lumberjacks break blocks in the owner's name, so they wait while that player is offline. */
+    private static boolean waitsForOwner(WorkerData data) {
+        return data.job() == WorkerJob.MINER || data.job() == WorkerJob.LUMBERJACK;
     }
 
     private static void restartPass(Runtime runtime) {

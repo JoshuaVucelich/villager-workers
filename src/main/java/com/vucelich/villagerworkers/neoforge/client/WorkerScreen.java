@@ -58,8 +58,8 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         super.init();
         int x = this.leftPos + 8;
         int y = this.topPos + 36;
-        int tabWidth = 84;
-        int tabStep = 86;
+        int tabWidth = 74;
+        int tabStep = 76;
         addRenderableWidget(tabButton("Job", "Choose the job and start, stop, or call the worker.", x, y, tabWidth, TAB_JOB));
         addRenderableWidget(tabButton("Area", "Mark where this worker works, and set the size.", x + tabStep, y, tabWidth, TAB_AREA));
         addRenderableWidget(tabButton("Storage", "Link the chests this worker uses.", x + tabStep * 2, y, tabWidth, TAB_STORAGE));
@@ -81,16 +81,16 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         addRenderableWidget(action("None", "No job. This worker waits.", x, y, 54, MenuIds.JOB_NONE));
         addRenderableWidget(action("Lumberjack", "Cuts trees inside the marked area.", x + 56, y, 74, MenuIds.JOB_LUMBERJACK));
         addRenderableWidget(action("Miner", "Digs the marked area, tunnel, branch, or shaft.", x + 132, y, 52, MenuIds.JOB_MINER));
-        addRenderableWidget(action("Builder", "Places a structure file, or a linked Create schematic.", x + 186, y, 62, MenuIds.JOB_BUILDER));
+        addRenderableWidget(action("Builder", "Places a structure file, or a linked Create schematic.", x + 186, y, 54, MenuIds.JOB_BUILDER));
         y += 20;
-        addRenderableWidget(action("Start", "Begin the selected job.", x, y, 54, MenuIds.START));
-        addRenderableWidget(action("Stop", "Stop and stay stopped until you start again.", x + 56, y, 54, MenuIds.STOP));
-        addRenderableWidget(action("Come", "Walk to you, then wait.", x + 112, y, 54, MenuIds.COME));
+        addRenderableWidget(action("Start", "Begin the selected job.", x, y, 34, MenuIds.START));
+        addRenderableWidget(action("Stop", "Stop and stay stopped until you start again.", x + 36, y, 34, MenuIds.STOP));
+        addRenderableWidget(action("Come", "Walk to you, then wait.", x + 72, y, 40, MenuIds.COME));
         WorkerView view = this.menu.view();
         if ("foreman".equals(view.rank())) {
-            addRenderableWidget(action("Demote", "This foreman becomes a worker again. The orange hat comes off.", x + 168, y, 70, MenuIds.DEMOTE));
+            addRenderableWidget(action("Demote", "This foreman becomes a worker again. The orange hat comes off.", x + 116, y, 80, MenuIds.DEMOTE));
         } else {
-            addRenderableWidget(action("Promote to Foreman", "Orange hard hat, a clipboard, and a rolled blueprint.", x + 168, y, 90, MenuIds.PROMOTE));
+            addRenderableWidget(action("Promote to Foreman", "Orange hard hat, a clipboard, and a rolled blueprint.", x + 116, y, 124, MenuIds.PROMOTE));
         }
         initCrew(view, x, y + 22);
     }
@@ -197,7 +197,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         addVerbRow(view, "Come", "come", x, commandY);
         addVerbRow(view, "Stay", "stop", x, commandY + 18);
         addVerbRow(view, "Work", "start", x, commandY + 36);
-        if (permissionsView != null && ticked.size() == 1 && view.viewerIsOwner()) {
+        if (permissionsView != null && ticked.size() == 1 && view.viewerIsOriginalOwner()) {
             UUID only = ticked.iterator().next();
             int shown = 0;
             for (ModPayloads.Person person : permissionsView.online()) {
@@ -259,15 +259,15 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     private void initArea(WorkerView view, int x, int y) {
         switch (view.job()) {
             case "lumberjack" -> {
-                addRenderableWidget(action("Mark area", "Use the area wand on two corners.", x, y, 88, MenuIds.MARK));
-                addRenderableWidget(action(view.clearLeaves() ? "Leaves: on" : "Leaves: off", "Break leaves inside the area.", x + 92, y, 84, MenuIds.TOGGLE_LEAVES));
-                addRenderableWidget(action(view.replant() ? "Replant: on" : "Replant: off", "Plant a sapling after a tree is cut.", x + 180, y, 88, MenuIds.TOGGLE_REPLANT));
+                addRenderableWidget(action("Mark area", "Use the area wand on two corners.", x, y, 70, MenuIds.MARK));
+                addRenderableWidget(action(view.clearLeaves() ? "Leaves: on" : "Leaves: off", "Break leaves inside the area.", x + 74, y, 78, MenuIds.TOGGLE_LEAVES));
+                addRenderableWidget(action(view.replant() ? "Replant: on" : "Replant: off", "Plant a sapling after a tree is cut.", x + 156, y, 84, MenuIds.TOGGLE_REPLANT));
             }
             case "miner" -> initMinerArea(view, x, y);
             case "builder" -> {
-                addRenderableWidget(action("Mark origin", "Right-click the corner of the build with the area wand.", x, y, 88, MenuIds.MARK));
-                addRenderableWidget(action("Read book", "Hold a book. One line is file.nbt dx dy dz.", x + 92, y, 80, MenuIds.READ_PIECES));
-                addRenderableWidget(action("Build now", "Creative only. Places this worker's schematic at once.", x + 176, y, 80, MenuIds.BUILD_NOW));
+                addRenderableWidget(action("Mark origin", "Right-click the corner of the build with the area wand.", x, y, 80, MenuIds.MARK));
+                addRenderableWidget(action("Read book", "Hold a book. One line is file.nbt dx dy dz.", x + 84, y, 72, MenuIds.READ_PIECES));
+                addRenderableWidget(action("Build now", "Creative only. Places this worker's schematic at once.", x + 160, y, 80, MenuIds.BUILD_NOW));
                 if ("foreman".equals(view.rank())) {
                     addRenderableWidget(action(
                             "Split layers",
@@ -291,11 +291,11 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         addRenderableWidget(action("Mode: " + pretty(view.minerMode()), "Switch between clear box, tunnel, branch, and shaft.", x, y, 100, MenuIds.CYCLE_MODE));
         addRenderableWidget(action(mark, markTip, x + 102, y, 68, MenuIds.MARK));
         addRenderableWidget(action(
-                view.useValuables() ? "Valuables: on" : "Valuables: off",
+                view.useValuables() ? "Ores: on" : "Ores: off",
                 "On: matching drops go to the valuables chest. Off: everything goes to the regular chest.",
                 x + 172,
                 y,
-                76,
+                64,
                 MenuIds.TOGGLE_VALUABLES));
         y += 18;
         int cursor = x;
@@ -363,14 +363,14 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     private void initStorage(WorkerView view, int x, int y) {
         switch (view.job()) {
             case "lumberjack" -> {
-                addRenderableWidget(action("Link logs", "Then right-click a chest or barrel near the worker.", x, y, 88, MenuIds.LINK_LOG));
-                addRenderableWidget(action("Link saplings", "Chest the replanted saplings are taken from.", x + 92, y, 96, MenuIds.LINK_SAPLING));
-                addRenderableWidget(action("Link tools", "Chest that holds the axe.", x + 192, y, 76, MenuIds.LINK_LUMBER_TOOL));
+                addRenderableWidget(action("Link logs", "Then right-click a chest or barrel near the worker.", x, y, 76, MenuIds.LINK_LOG));
+                addRenderableWidget(action("Link saplings", "Chest the replanted saplings are taken from.", x + 80, y, 88, MenuIds.LINK_SAPLING));
+                addRenderableWidget(action("Link tools", "Chest that holds the axe.", x + 172, y, 68, MenuIds.LINK_LUMBER_TOOL));
             }
             case "miner" -> {
                 addRenderableWidget(action("Valuables chest", "Where checked drops are delivered.", x, y, 90, MenuIds.LINK_VALUABLES));
                 addRenderableWidget(action("Regular chest", "Where other drops, and everything when valuables are off, are delivered.", x + 92, y, 80, MenuIds.LINK_REGULAR));
-                addRenderableWidget(action("Tool chest", "Chest that holds the pickaxe.", x + 174, y, 74, MenuIds.LINK_MINER_TOOL));
+                addRenderableWidget(action("Tool chest", "Chest that holds the pickaxe.", x + 174, y, 64, MenuIds.LINK_MINER_TOOL));
             }
             case "builder" -> {
                 addRenderableWidget(action("Link schematic", "Right-click a placed schematicannon that already has a schematic.", x, y, 110, MenuIds.LINK_SCHEMATIC));
@@ -398,9 +398,23 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
             addRenderableWidget(action("Show people", "List online players so you can trust one or give them the worker.", x, y, 100, MenuIds.SHOW_PERMISSIONS));
             return;
         }
+        int bottom = this.topPos + this.imageHeight - 20;
+        List<ModPayloads.Person> owners = permissionsView.owners();
+        for (int i = 1; i < owners.size(); i++) {
+            if (y + 16 > bottom) {
+                break;
+            }
+            ModPayloads.Person person = owners.get(i);
+            addRenderableWidget(Button.builder(Component.literal("Remove " + person.name()), ignored ->
+                            PacketDistributor.sendToServer(new ModPayloads.RemoveOwnerPayload(view.villagerId(), person.id())))
+                    .bounds(x, y, 160, 16)
+                    .tooltip(Tooltip.create(Component.literal("Remove " + person.name() + " as a co-owner. The primary owner stays.")))
+                    .build());
+            y += 18;
+        }
         int shown = 0;
         for (ModPayloads.Person person : permissionsView.trusted()) {
-            if (shown >= 2) {
+            if (shown >= 2 || y + 16 > bottom) {
                 break;
             }
             addRenderableWidget(Button.builder(Component.literal("Remove " + person.name()), ignored ->
@@ -413,7 +427,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         }
         shown = 0;
         for (ModPayloads.Person person : permissionsView.online()) {
-            if (person.name().equalsIgnoreCase(permissionsView.ownerName()) || shown >= 2) {
+            if (person.name().equalsIgnoreCase(permissionsView.ownerName()) || shown >= 2 || y + 16 > bottom) {
                 continue;
             }
             addRenderableWidget(Button.builder(Component.literal("Trust " + person.name()), ignored ->
@@ -426,11 +440,13 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
                     .bounds(x + 102, y, 52, 16)
                     .tooltip(Tooltip.create(Component.literal("Add " + person.name() + " as an owner. Owners can all control this worker.")))
                     .build());
-            addRenderableWidget(Button.builder(Component.literal("Sole"), ignored ->
-                            PacketDistributor.sendToServer(new ModPayloads.TransferOwnerPayload(view.villagerId(), person.id())))
-                    .bounds(x + 156, y, 44, 16)
-                    .tooltip(Tooltip.create(Component.literal("Transfer sole ownership to " + person.name() + ". Other owners are removed.")))
-                    .build());
+            if (view.viewerIsOriginalOwner()) {
+                addRenderableWidget(Button.builder(Component.literal("Sole"), ignored ->
+                                PacketDistributor.sendToServer(new ModPayloads.TransferOwnerPayload(view.villagerId(), person.id())))
+                        .bounds(x + 156, y, 44, 16)
+                        .tooltip(Tooltip.create(Component.literal("Transfer sole ownership to " + person.name() + ". Other owners are removed.")))
+                        .build());
+            }
             y += 18;
             shown++;
         }
@@ -580,8 +596,12 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
             graphics.drawString(this.font, "Shift-click moves items in or out.", this.leftPos + 8, this.topPos + 74, 0xC8BBA8, false);
             graphics.drawString(this.font, "Mined items wait here for a chest.", this.leftPos + 8, this.topPos + 86, 0xC8BBA8, false);
         } else if (tab == TAB_JOB) {
-            graphics.drawString(this.font, "Opening this menu holds the worker still.", this.leftPos + 8, this.topPos + 100, 0xC8BBA8, false);
-            graphics.drawString(this.font, detail(this.menu.view()), this.leftPos + 8, this.topPos + 112, 0xC8BBA8, false);
+            graphics.drawString(this.font, "Menu holds the worker.", this.leftPos + WorkerMenu.CARRY_X, this.topPos + 6, 0xC8BBA8, false);
+            String detail = detail(this.menu.view());
+            if (detail.length() > 24) {
+                detail = detail.substring(0, 21) + "...";
+            }
+            graphics.drawString(this.font, detail, this.leftPos + WorkerMenu.CARRY_X, this.topPos + 16, 0xC8BBA8, false);
         } else if (tab == TAB_AREA && "lumberjack".equals(this.menu.view().job())) {
             graphics.drawString(this.font, detail(this.menu.view()), this.leftPos + 8, this.topPos + 82, 0xC8BBA8, false);
         } else if (tab == TAB_STORAGE) {
@@ -595,9 +615,9 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
             }
         } else if (tab == TAB_AREA && "builder".equals(this.menu.view().job())) {
             WorkerView view = this.menu.view();
-            graphics.drawString(this.font, trimWide(view.structureText()), this.leftPos + 8, this.topPos + 78, 0xC8BBA8, false);
-            graphics.drawString(this.font, trimWide(view.materialsText()), this.leftPos + 8, this.topPos + 90, 0xC8BBA8, false);
-            graphics.drawString(this.font, "Link material chests on Storage. Files go in villager_workers/schematics.", this.leftPos + 8, this.topPos + 102, 0xC8BBA8, false);
+            graphics.drawString(this.font, trimWide(view.structureText()), this.leftPos + 8, this.topPos + 96, 0xC8BBA8, false);
+            graphics.drawString(this.font, trimWide(view.materialsText()), this.leftPos + 8, this.topPos + 108, 0xC8BBA8, false);
+            graphics.drawString(this.font, "Link material chests on Storage. Files go in villager_workers/schematics.", this.leftPos + 8, this.topPos + 120, 0xC8BBA8, false);
         }
     }
 

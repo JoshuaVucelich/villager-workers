@@ -128,6 +128,7 @@ class SaveFormatTest {
     private static void assert049(WorkerData data, UUID owner, UUID friend, UUID come) {
         assertEquals(owner, data.owner());
         assertEquals(List.of(owner), data.allOwners());
+        assertEquals(owner, data.originalOwner());
         assertEquals(1, data.trusted().size());
         assertEquals(friend, data.trusted().get(0).id());
         assertEquals("Friend", data.trusted().get(0).name());

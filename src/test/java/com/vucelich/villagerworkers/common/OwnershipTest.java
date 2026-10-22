@@ -24,6 +24,7 @@ class OwnershipTest {
         WorkerData data = WorkerData.hire(primary);
         assertEquals(1, data.ownerCount());
         assertEquals(List.of(primary), data.allOwners());
+        assertEquals(primary, data.originalOwner());
         List<UUID> extra = new ArrayList<>();
         for (int i = 0; i < 10; i++) {
             extra.add(UUID.nameUUIDFromBytes(("owner-" + i).getBytes()));
@@ -78,6 +79,18 @@ class OwnershipTest {
     }
 
     @Test
+    void removeCoOwnerLeavesThePrimary() {
+        WorkerData data = WorkerData.hire(primary);
+        data.addOwner(second);
+        data.addOwner(third);
+        assertFalse(data.removeCoOwner(primary));
+        assertEquals(3, data.ownerCount());
+        assertTrue(data.removeCoOwner(second));
+        assertEquals(List.of(primary, third), data.allOwners());
+        assertFalse(data.removeCoOwner(second));
+    }
+
+    @Test
     void soleTransferLeavesOneOwnerAndDoesNotTrustTheOthers() {
         WorkerData data = WorkerData.hire(primary);
         data.addOwner(second);
@@ -86,6 +99,7 @@ class OwnershipTest {
         data.transferSoleTo(second);
         assertEquals(1, data.ownerCount());
         assertEquals(second, data.owner());
+        assertEquals(primary, data.originalOwner());
         assertFalse(data.isOwner(primary));
         assertFalse(data.isOwner(third));
         assertFalse(data.trustedIds().contains(primary));
@@ -103,9 +117,36 @@ class OwnershipTest {
                 .parse(JsonOps.INSTANCE, WorkerData.CODEC.encodeStart(JsonOps.INSTANCE, data).getOrThrow())
                 .getOrThrow();
         assertEquals(List.of(primary, second, third), again.allOwners());
+        assertEquals(primary, again.originalOwner());
         String legacy = "{\"owner\":\"" + primary + "\",\"job\":\"miner\"}";
         WorkerData old = WorkerData.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(legacy)).getOrThrow();
         assertEquals(1, old.ownerCount());
         assertEquals(primary, old.owner());
+        assertEquals(primary, old.originalOwner());
+    }
+
+    @Test
+    void missingOriginalOwnerUsesTheFirstListedOwner() {
+        String json = "{\"owner\":\"" + second + "\",\"owners\":[\"" + primary + "\",\"" + second + "\"],\"job\":\"miner\"}";
+        WorkerData data = WorkerData.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(json)).getOrThrow();
+        assertEquals(primary, data.owner());
+        assertEquals(List.of(primary, second), data.allOwners());
+        assertEquals(primary, data.originalOwner());
+    }
+
+    @Test
+    void explicitOriginalOwnerSurvivesSoleTransfer() {
+        WorkerData data = WorkerData.hire(primary);
+        data.addOwner(second);
+        data.transferSoleTo(second);
+        String encoded = WorkerData.CODEC.encodeStart(JsonOps.INSTANCE, data).getOrThrow().toString();
+        assertTrue(encoded.contains("original_owner"));
+        assertTrue(encoded.contains(primary.toString()));
+        WorkerData again = WorkerData.CODEC
+                .parse(JsonOps.INSTANCE, WorkerData.CODEC.encodeStart(JsonOps.INSTANCE, data).getOrThrow())
+                .getOrThrow();
+        assertEquals(second, again.owner());
+        assertEquals(1, again.ownerCount());
+        assertEquals(primary, again.originalOwner());
     }
 }

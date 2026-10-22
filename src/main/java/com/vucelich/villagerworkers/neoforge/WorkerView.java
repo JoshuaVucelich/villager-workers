@@ -22,6 +22,7 @@ public record WorkerView(
         boolean rested,
         String problem,
         boolean viewerIsOwner,
+        boolean viewerIsOriginalOwner,
         boolean createLoaded,
         String areaText,
         boolean clearLeaves,
@@ -83,6 +84,7 @@ public record WorkerView(
                 data.rested(),
                 StatusText.problem(hungry, hurt, data.problem()),
                 data.isOwner(viewer.getUUID()),
+                data.originalOwner() != null && data.originalOwner().equals(viewer.getUUID()),
                 ModList.get().isLoaded("create"),
                 area,
                 lumber.clearLeaves(),
@@ -152,6 +154,7 @@ public record WorkerView(
         buf.writeBoolean(rested);
         buf.writeUtf(problem);
         buf.writeBoolean(viewerIsOwner);
+        buf.writeBoolean(viewerIsOriginalOwner);
         buf.writeBoolean(createLoaded);
         buf.writeUtf(areaText);
         buf.writeBoolean(clearLeaves);
@@ -201,6 +204,7 @@ public record WorkerView(
                 buf.readUtf(),
                 buf.readBoolean(),
                 buf.readUtf(),
+                buf.readBoolean(),
                 buf.readBoolean(),
                 buf.readBoolean(),
                 buf.readUtf(),

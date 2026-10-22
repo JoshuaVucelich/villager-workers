@@ -18,14 +18,17 @@ import net.minecraft.world.level.Level;
 
 public class WorkerMenu extends AbstractContainerMenu {
     public static final double RANGE_SQR = 36.0;
-    /** Fits a 1920x1080 window at GUI scale 4 (480 by 270). Slots sit on the right. */
-    public static final int PANEL_WIDTH = 448;
+    /**
+     * Auto GUI scale on 1280x720 and 2560x1440 is 426 wide and 240 tall.
+     * 416 by 232 stays inside that window. Slots sit on the right.
+     */
+    public static final int PANEL_WIDTH = 416;
     public static final int PANEL_HEIGHT = 232;
-    public static final int CARRY_X = 268;
+    public static final int CARRY_X = 252;
     public static final int CARRY_Y = 56;
-    public static final int TOOL_X = 268;
+    public static final int TOOL_X = 252;
     public static final int TOOL_Y = 114;
-    public static final int PLAYER_X = 268;
+    public static final int PLAYER_X = 252;
     public static final int PLAYER_Y = 138;
 
     private final Villager villager;

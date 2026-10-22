@@ -154,9 +154,9 @@ The speed change is applied only by job code (M2), not by M1:
 
 The owner is the hiring player. Trusted players are UUIDs the owner adds. A trusted player must be online at the moment they are added; the server resolves the typed name to a UUID and stores the UUID. Removing a trusted player does not require them to be online.
 
-A worker has one primary owner and up to 7 more owners, 8 in total. Every owner can do what the primary owner can do, including the trusted list and sole transfer. Hiring starts with one owner. Adding an owner who was trusted removes them from the trusted set. Trusted players still cannot change owners.
+A worker has one primary owner and up to 7 more owners, 8 in total. Every owner can do what the primary owner can do, including the trusted list. Sole transfer is the exception: only the original owner can do it. That is the player who hired the worker, saved as `original_owner`. A 0.4.9 save, or a 0.5 save with no `original_owner`, adopts the current owner, or the first id in the `owners` list when that list is present. Hiring starts with one owner, who is also the original owner. Adding an owner who was trusted removes them from the trusted set. Trusted players still cannot change owners. A co-owner cannot make themselves or anyone else the sole owner.
 
-Sole transfer leaves exactly one owner. The previous owners are not added to the trusted set. Transfer requires the new owner to be online in the same dimension. A save that only has the legacy `owner` field reloads as that one owner. A save with an `owners` list reloads those UUIDs, primary first.
+Sole transfer leaves exactly one owner and does not change `original_owner`. The previous owners are not added to the trusted set. Transfer requires the new owner to be online in the same dimension. After a sole transfer, the new owner is not the original owner, so they cannot transfer the worker either, and the founder is no longer an owner. A save that only has the legacy `owner` field reloads as that one owner. A save with an `owners` list reloads those UUIDs, primary first.
 
 | Action | Owner | Trusted | Anyone else |
 | --- | --- | --- | --- |
@@ -165,10 +165,10 @@ Sole transfer leaves exactly one owner. The previous owners are not added to the
 | Start, stop, come, resume | yes | yes | no |
 | Change job or job setup, wand, chests, whitelist, valuables | yes | yes | no |
 | Edit the trusted list | yes | no | no |
-| Transfer ownership | yes | no | no |
+| Transfer sole ownership | original owner only | no | no |
 | Chat `@Name` commands | yes | yes | no |
 
-The client hides the permissions tab from trusted players. That is not the security check. Every packet and menu button checks the role again on the server. A failed check is ignored except for a one-line denial sent to that player. Checks use the server player UUID, never a UUID supplied by the client as "I am the owner".
+The client hides the permissions tab from trusted players, and hides Sole and crew Give unless the viewer is the original owner. That is not the security check. Every packet and menu button checks the role again on the server. A failed check is ignored except for a one-line denial sent to that player. Checks use the server player UUID, never a UUID supplied by the client as "I am the owner".
 
 A trusted player acts with the owner's claim rights. Starting a job, marking an area, or telling the worker to come does not lend the trusted player's claims to that worker. Breaking a block, placing a block, and opening a linked container are checked as the owner: spawn protection, the world border, claim mods, and container locks all see the owner. If the owner is offline, the worker waits instead of skipping those checks. The click that links a chest or schematicannon is the clicking player's own interaction. That click is refused when another mod already cancelled it, when that player may not interact with the position, or when a lockable container does not open for them. Hauling later checks the owner again.
 

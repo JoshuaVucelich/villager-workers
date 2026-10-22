@@ -18,7 +18,7 @@ The mod is aimed at a pack that also runs Create 6.0.x and Create Aeronautics. C
 ./gradlew build
 ```
 
-The mod jar is written to `build/libs/villager_workers-0.5.6.jar`.
+The mod jar is written to `build/libs/villager_workers-0.5.7.jar`.
 
 A development client:
 

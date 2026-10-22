@@ -2,7 +2,7 @@
 
 Issues to file for Villager Workers. Each one lists the title, scope, and acceptance criteria. The behavior they refer to is specified in [DESIGN.md](DESIGN.md).
 
-M1 through M6 are implemented. M5 is crews. M6 is several owners and sole transfer. Broken blocks go into the worker inventory before a chest or the ground. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
+M1 through M6 are implemented. M5 is crews. M6 is several owners and sole transfer. Only the original owner can transfer sole ownership. Broken blocks go into the worker inventory before a chest or the ground. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
 
 Order is M1, then M2, then M3. Later issues may persist fields that an earlier issue defined, but they must not start a later milestone's job AI early.
 
@@ -257,4 +257,4 @@ A builder places gzipped vanilla structure files from `villager_workers/schemati
 
 ## Scaffolding
 
-When a builder cannot reach the next cell, it places one temporary block and steps up. The crew rule chooses the block: andesite scaffolding, then vanilla scaffolding, then a spare block that is not valuable and does not fall. Plain blocks uses spare blocks even when scaffolding is in the chest. If none of those are available, the worker stops and tells the owner it needs scaffolding or spare blocks. Temporary blocks are saved with the worker, so a restart mid-build still removes only those blocks. They are also removed when the job finishes or stops, and the items go back to storage. The player's blocks are not broken. `scaffoldSearchBudget` (default 8) limits the slot scan. Ships are not ticked.
+When a builder cannot reach the next cell, it places one temporary block and steps up. The crew rule chooses the block: andesite scaffolding, then vanilla scaffolding, then a spare block that is not valuable and does not fall. Plain blocks uses spare blocks even when scaffolding is in the chest. If none of those are available, the worker stops and tells the owner it needs scaffolding or spare blocks. Temporary blocks are saved with the worker, so a restart mid-build still removes only those blocks. They are also removed when the job finishes or stops, and the items go back to storage. The player's blocks are not broken. `scaffoldSearchBudget` (default 8) limits the slot scan. Ships are not ticked. A foreman command that would change a crew member checks that member's rights and skips anyone the caller cannot control. Promote, demote, and own rules are owner actions. A working miner whose owner is offline waits `offlineOwnerBackoffTicks` (default 40) instead of scanning every tick.

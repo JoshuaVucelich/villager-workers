@@ -11,6 +11,7 @@ import com.vucelich.villagerworkers.common.ActionPace;
 import com.vucelich.villagerworkers.common.BuilderConfig;
 import com.vucelich.villagerworkers.common.LumberjackConfig;
 import com.vucelich.villagerworkers.common.SchematicPiece;
+import com.vucelich.villagerworkers.common.SetupLimits;
 import com.vucelich.villagerworkers.common.StructurePlan;
 import com.vucelich.villagerworkers.common.WorkerRank;
 import com.vucelich.villagerworkers.common.MinerConfig;
@@ -26,10 +27,15 @@ import com.vucelich.villagerworkers.common.WorkerData;
 import com.vucelich.villagerworkers.common.WorkerJob;
 import com.vucelich.villagerworkers.neoforge.MenuIds;
 import com.vucelich.villagerworkers.neoforge.ModItems;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.AddOwnerPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.AddTrustedPayload;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.CrewCommandPayload;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.GiveWorkerPayload;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.RemoveOwnerPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.RemoveTrustedPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.TransferOwnerPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.UpdateLumberjackPayload;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.UpdateWhitelistPayload;
 import com.vucelich.villagerworkers.neoforge.OwnerNotices;
 import com.vucelich.villagerworkers.neoforge.SetupSessions;
 import com.vucelich.villagerworkers.neoforge.WorkerAttachments;
@@ -37,6 +43,7 @@ import com.vucelich.villagerworkers.neoforge.WorkerMenu;
 import com.vucelich.villagerworkers.neoforge.WorkerServer;
 import com.vucelich.villagerworkers.neoforge.WorkerTicker;
 import com.vucelich.villagerworkers.neoforge.WorkerView;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -60,6 +67,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.Connection;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.resources.ResourceLocation;
@@ -2369,6 +2377,283 @@ public class AcceptanceGameTests {
                 WorkerSettings.BUILD_INTERVAL_TICKS.set(savedInterval);
                 StructureBuilder.stopTiming();
             }
+        });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void coOwnerCannotTransferSoleOwnership(GameTestHelper helper) {
+        RecordingPlayer founder = player(helper);
+        RecordingPlayer co = player(helper);
+        RecordingPlayer other = player(helper);
+        Villager villager = villager(helper, 2, 1, 2, "Deed");
+        WorkerData data = hire(villager, founder);
+        helper.assertTrue(founder.getUUID().equals(data.originalOwner()), "hired founder");
+        stand(founder, villager);
+        stand(co, villager);
+        stand(other, villager);
+        openWorker(founder, villager);
+        WorkerServer.addOwner(founder, new AddOwnerPayload(villager.getUUID(), co.getGameProfile().getName()));
+        helper.assertTrue(data.ownerCount() == 2, "two owners");
+        WorkerView coView = WorkerView.capture(villager, data, co);
+        helper.assertTrue(coView.viewerIsOwner(), "co-owner still sees owner controls");
+        helper.assertFalse(coView.viewerIsOriginalOwner(), "co-owner sole button hidden");
+        helper.assertTrue(WorkerView.capture(villager, data, founder).viewerIsOriginalOwner(), "founder sole button");
+
+        openWorker(co, villager);
+        co.messages.clear();
+        WorkerServer.transfer(co, new TransferOwnerPayload(villager.getUUID(), co.getUUID()));
+        helper.assertTrue(data.ownerCount() == 2, "forged self transfer");
+        helper.assertTrue(founder.getUUID().equals(data.owner()), "primary unchanged");
+        helper.assertTrue(founder.getUUID().equals(data.originalOwner()), "founder stays original");
+        helper.assertTrue(said(co, "Only the original owner"), co.messages.toString());
+
+        co.messages.clear();
+        WorkerServer.transfer(co, new TransferOwnerPayload(villager.getUUID(), other.getUUID()));
+        helper.assertTrue(data.ownerCount() == 2, "forged third-party transfer");
+        helper.assertTrue(data.isOwner(founder.getUUID()) && data.isOwner(co.getUUID()), "both remain");
+        helper.assertTrue(said(co, "Only the original owner"), co.messages.toString());
+
+        co.messages.clear();
+        WorkerServer.giveWorker(co, new GiveWorkerPayload(villager.getUUID(), other.getUUID()));
+        helper.assertTrue(data.ownerCount() == 2, "forged give");
+        helper.assertTrue(said(co, "Only the original owner"), co.messages.toString());
+
+        openWorker(founder, villager);
+        WorkerServer.transfer(founder, new TransferOwnerPayload(villager.getUUID(), other.getUUID()));
+        helper.assertTrue(data.ownerCount() == 1, "founder transfer");
+        helper.assertTrue(other.getUUID().equals(data.owner()), "new sole owner");
+        helper.assertTrue(founder.getUUID().equals(data.originalOwner()), "original unchanged after transfer");
+        helper.assertFalse(data.isOwner(co.getUUID()), "co-owner removed");
+
+        openWorker(other, villager);
+        other.messages.clear();
+        WorkerServer.transfer(other, new TransferOwnerPayload(villager.getUUID(), co.getUUID()));
+        helper.assertTrue(other.getUUID().equals(data.owner()), "recipient cannot transfer");
+        helper.assertTrue(founder.getUUID().equals(data.originalOwner()), "still the founder");
+        helper.assertTrue(said(other, "Only the original owner"), other.messages.toString());
+
+        openWorker(founder, villager);
+        founder.messages.clear();
+        WorkerServer.transfer(founder, new TransferOwnerPayload(villager.getUUID(), co.getUUID()));
+        helper.assertTrue(other.getUUID().equals(data.owner()), "founder is no longer an owner");
+        helper.assertTrue(said(founder, "You cannot do that."), founder.messages.toString());
+        done(helper, founder, co, other);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void crewActionsSkipMembersTheCallerCannotControl(GameTestHelper helper) {
+        RecordingPlayer founder = player(helper);
+        RecordingPlayer boss = player(helper);
+        Villager foreman = villager(helper, 2, 1, 2, "Boss");
+        WorkerData foremanData = hire(foreman, boss);
+        foremanData.setRank(WorkerRank.FOREMAN);
+        Villager foreign = villager(helper, 3, 1, 2, "Foreign");
+        WorkerData foreignData = hire(foreign, founder);
+        foreignData.setForeman(foreman.getUUID());
+        Villager owned = villager(helper, 4, 1, 2, "Owned");
+        WorkerData ownedData = hire(owned, boss);
+        ownedData.setForeman(foreman.getUUID());
+        stand(boss, foreman);
+        openWorker(boss, foreman);
+        boss.messages.clear();
+        helper.assertTrue(boss.containerMenu.clickMenuButton(boss, MenuIds.CYCLE_SCAFFOLD), "cycle scaffold");
+        helper.assertTrue(foreignData.scaffoldOrder().isEmpty(), "foreign order " + foreignData.scaffoldOrder());
+        helper.assertTrue("vanilla,spare,andesite".equals(ownedData.scaffoldOrder()), "owned order " + ownedData.scaffoldOrder());
+        helper.assertTrue("vanilla,spare,andesite".equals(foremanData.scaffoldOrder()), "foreman order " + foremanData.scaffoldOrder());
+        helper.assertTrue(said(boss, "cannot control"), boss.messages.toString());
+
+        ServerLevel level = helper.getLevel();
+        BlockPos origin = helper.absolutePos(new BlockPos(1, 1, 5));
+        String file = fillAndSaveBox(level, origin);
+        foremanData.setBuilder(BuilderConfig.defaults()
+                .withStructureOrigin(Optional.of(origin))
+                .withPieces(List.of(new SchematicPiece(file, 0, 0, 0))));
+        foreignData.setJob(WorkerJob.NONE);
+        ownedData.setJob(WorkerJob.NONE);
+        boss.messages.clear();
+        helper.assertTrue(boss.containerMenu.clickMenuButton(boss, MenuIds.SPLIT_LAYERS), "split layers");
+        helper.assertTrue(foreignData.job() == WorkerJob.NONE, "foreign job " + foreignData.job());
+        helper.assertTrue(ownedData.job() == WorkerJob.BUILDER, "owned job " + ownedData.job());
+        helper.assertTrue(said(boss, "cannot control"), boss.messages.toString());
+
+        foreignData.setActivity(WorkerActivity.WORKING);
+        ownedData.setActivity(WorkerActivity.WORKING);
+        boss.messages.clear();
+        WorkerServer.crewCommand(boss, new CrewCommandPayload(foreman.getUUID(), "stop", "crew", List.of()));
+        helper.assertTrue(foreignData.activity() == WorkerActivity.WORKING, "foreign still working");
+        helper.assertTrue(ownedData.activity() == WorkerActivity.STOPPED, "owned member stopped");
+        helper.assertTrue(said(boss, "cannot control"), boss.messages.toString());
+
+        boss.messages.clear();
+        helper.assertTrue(boss.containerMenu.clickMenuButton(boss, MenuIds.DEMOTE), "demote");
+        helper.assertTrue(foremanData.rank() == WorkerRank.WORKER, "demoted");
+        helper.assertTrue(foreman.getUUID().equals(foreignData.foreman()), "foreign link kept");
+        helper.assertTrue(ownedData.foreman() == null, "owned member released");
+        helper.assertTrue(said(boss, "cannot control"), boss.messages.toString());
+        done(helper, founder, boss);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void promoteDemoteAndOwnRulesNeedAnOwner(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        RecordingPlayer friend = player(helper);
+        Villager villager = villager(helper, 2, 1, 2, "Hat");
+        WorkerData data = hire(villager, owner);
+        data.addTrusted(new TrustedPlayer(friend.getUUID(), friend.getGameProfile().getName()));
+        stand(friend, villager);
+        openWorker(friend, villager);
+        friend.messages.clear();
+        helper.assertFalse(friend.containerMenu.clickMenuButton(friend, MenuIds.PROMOTE), "trusted promote");
+        helper.assertTrue(data.rank() == WorkerRank.WORKER, "rank unchanged");
+        helper.assertTrue(said(friend, "You cannot do that."), friend.messages.toString());
+        friend.messages.clear();
+        helper.assertFalse(friend.containerMenu.clickMenuButton(friend, MenuIds.TOGGLE_OVERRIDE), "trusted override");
+        helper.assertFalse(data.rulesOverride(), "override unchanged");
+        stand(owner, villager);
+        openWorker(owner, villager);
+        helper.assertTrue(owner.containerMenu.clickMenuButton(owner, MenuIds.PROMOTE), "owner promote");
+        helper.assertTrue(data.rank() == WorkerRank.FOREMAN, "promoted");
+        helper.assertTrue(owner.containerMenu.clickMenuButton(owner, MenuIds.TOGGLE_OVERRIDE), "owner override");
+        helper.assertTrue(data.rulesOverride(), "override on");
+        helper.assertTrue(owner.containerMenu.clickMenuButton(owner, MenuIds.DEMOTE), "owner demote");
+        helper.assertTrue(data.rank() == WorkerRank.WORKER, "demoted");
+        done(helper, owner, friend);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void oversizedListsAreRejected(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        Villager villager = villager(helper, 2, 1, 2, "List");
+        WorkerData data = hire(villager, owner);
+        data.setRank(WorkerRank.FOREMAN);
+        stand(owner, villager);
+        openWorker(owner, villager);
+        WorkerServer.updateWhitelist(owner, new UpdateWhitelistPayload(villager.getUUID(), List.of("minecraft:dirt")));
+        helper.assertTrue(
+                List.of(ResourceLocation.parse("minecraft:dirt")).equals(data.breakWhitelist()),
+                "dirt saved " + data.breakWhitelist());
+        List<String> tooMany = new ArrayList<>();
+        for (int i = 0; i < SetupLimits.MAX_LIST + 1; i++) {
+            tooMany.add("minecraft:stone");
+        }
+        owner.messages.clear();
+        WorkerServer.updateWhitelist(owner, new UpdateWhitelistPayload(villager.getUUID(), tooMany));
+        helper.assertTrue(
+                List.of(ResourceLocation.parse("minecraft:dirt")).equals(data.breakWhitelist()),
+                "whitelist kept " + data.breakWhitelist());
+        helper.assertTrue(said(owner, "too long"), owner.messages.toString());
+
+        data.setActivity(WorkerActivity.WORKING);
+        List<UUID> picked = new ArrayList<>();
+        for (int i = 0; i < SetupLimits.MAX_CREW_PICKED + 1; i++) {
+            picked.add(UUID.randomUUID());
+        }
+        owner.messages.clear();
+        WorkerServer.crewCommand(owner, new CrewCommandPayload(villager.getUUID(), "stop", "ticked", picked));
+        helper.assertTrue(data.activity() == WorkerActivity.WORKING, "activity kept");
+        helper.assertTrue(said(owner, "too long"), owner.messages.toString());
+
+        RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(Unpooled.buffer(), helper.getLevel().registryAccess());
+        boolean whitelistThrew = false;
+        try {
+            UpdateWhitelistPayload.STREAM_CODEC.encode(buf, new UpdateWhitelistPayload(villager.getUUID(), tooMany));
+        } catch (RuntimeException ignored) {
+            whitelistThrew = true;
+        }
+        helper.assertTrue(whitelistThrew, "whitelist codec accepts an oversized list");
+        buf.clear();
+        boolean crewThrew = false;
+        try {
+            CrewCommandPayload.STREAM_CODEC.encode(buf, new CrewCommandPayload(villager.getUUID(), "stop", "ticked", picked));
+        } catch (RuntimeException ignored) {
+            crewThrew = true;
+        }
+        buf.release();
+        helper.assertTrue(crewThrew, "crew codec accepts an oversized list");
+        done(helper, owner);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void removeCoOwnerKeepsThePrimary(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        RecordingPlayer friend = player(helper);
+        RecordingPlayer trusted = player(helper);
+        Villager villager = villager(helper, 2, 1, 2, "Share");
+        WorkerData data = hire(villager, owner);
+        stand(owner, villager);
+        stand(friend, villager);
+        stand(trusted, villager);
+        openWorker(owner, villager);
+        WorkerServer.addOwner(owner, new AddOwnerPayload(villager.getUUID(), friend.getGameProfile().getName()));
+        helper.assertTrue(data.ownerCount() == 2, "added " + data.ownerCount());
+        openWorker(friend, villager);
+        friend.messages.clear();
+        WorkerServer.removeOwner(friend, new RemoveOwnerPayload(villager.getUUID(), owner.getUUID()));
+        helper.assertTrue(data.ownerCount() == 2, "primary stays");
+        helper.assertTrue(said(friend, "primary owner stays"), friend.messages.toString());
+        data.addTrusted(new TrustedPlayer(trusted.getUUID(), trusted.getGameProfile().getName()));
+        openWorker(trusted, villager);
+        trusted.messages.clear();
+        WorkerServer.removeOwner(trusted, new RemoveOwnerPayload(villager.getUUID(), friend.getUUID()));
+        helper.assertTrue(data.ownerCount() == 2, "trusted cannot remove");
+        helper.assertTrue(said(trusted, "You cannot do that."), trusted.messages.toString());
+        openWorker(owner, villager);
+        WorkerServer.removeOwner(owner, new RemoveOwnerPayload(villager.getUUID(), friend.getUUID()));
+        helper.assertTrue(data.ownerCount() == 1, "removed");
+        helper.assertTrue(owner.getUUID().equals(data.owner()), "primary remains");
+        done(helper, owner, friend, trusted);
+    }
+
+    @GameTest(template = "yard", timeoutTicks = 160)
+    public static void offlineMinersStayCheap(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        ServerLevel level = helper.getLevel();
+        List<UUID> timed = new ArrayList<>();
+        BlockPos shared = barrel(helper, 18, 1, 1, new ItemStack(Items.IRON_PICKAXE));
+        for (int i = 0; i < 16; i++) {
+            int x = 1 + (i % 8);
+            int z = 1 + (i / 8) * 3;
+            Villager miner = villager(helper, x, 1, z, "Spin" + i);
+            timed.add(miner.getUUID());
+            miner.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.IRON_PICKAXE));
+            WorkerData data = hire(miner, owner);
+            BlockPos stone = helper.absolutePos(new BlockPos(x, 1, z + 1));
+            level.setBlockAndUpdate(stone, Blocks.STONE.defaultBlockState());
+            data.setJob(WorkerJob.MINER);
+            data.setRested(true);
+            data.setMiner(miner(
+                    MinerMode.CLEAR_BOX,
+                    area(level, stone, stone),
+                    null,
+                    1,
+                    2,
+                    1,
+                    "",
+                    4,
+                    1,
+                    1,
+                    1,
+                    false,
+                    shared,
+                    shared,
+                    shared));
+            data.setActivity(WorkerActivity.WORKING);
+        }
+        cleanup(owner);
+        WorkerTicker.startTickTiming(timed, 40);
+        helper.runAtTickTime(140, () -> {
+            double workers = WorkerTicker.averageTickMillisForTen();
+            int samples = WorkerTicker.tickTimingSamples();
+            double server = level.getServer().getAverageTickTimeNanos() / 1_000_000.0;
+            WorkerTicker.stopTickTiming();
+            VillagerWorkersMod.LOGGER.info(
+                    "Offline miners extrapolated to 10 workers: {} ms over {} samples, server {} ms",
+                    workers,
+                    samples,
+                    server);
+            helper.assertTrue(samples > 40, "offline miner samples " + samples);
+            helper.assertTrue(workers < 0.12, "offline miners " + workers + " ms");
+            helper.succeed();
         });
     }
 

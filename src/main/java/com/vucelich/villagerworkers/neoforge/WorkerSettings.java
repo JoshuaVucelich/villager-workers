@@ -11,6 +11,7 @@ public final class WorkerSettings {
     static final ModConfigSpec.IntValue BUILD_INTERVAL_TICKS;
     static final ModConfigSpec.IntValue CREATE_SCHEMATIC_UPLOAD_KB;
     static final ModConfigSpec.IntValue SCAFFOLD_SEARCH_BUDGET;
+    static final ModConfigSpec.IntValue OFFLINE_OWNER_BACKOFF_TICKS;
 
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
@@ -33,6 +34,9 @@ public final class WorkerSettings {
         SCAFFOLD_SEARCH_BUDGET = builder
                 .comment("Positions a builder may consider in one tick when choosing the next scaffolding block. Ships are not scanned.")
                 .defineInRange("scaffoldSearchBudget", 8, 1, 32);
+        OFFLINE_OWNER_BACKOFF_TICKS = builder
+                .comment("While the owner is offline, a working miner or lumberjack does not scan or break. This is how many ticks it waits before checking again.")
+                .defineInRange("offlineOwnerBackoffTicks", 40, 20, 200);
         SPEC = builder.build();
     }
 
@@ -60,5 +64,9 @@ public final class WorkerSettings {
 
     public static int scaffoldSearchBudget() {
         return SCAFFOLD_SEARCH_BUDGET.get();
+    }
+
+    public static int offlineOwnerBackoffTicks() {
+        return OFFLINE_OWNER_BACKOFF_TICKS.get();
     }
 }

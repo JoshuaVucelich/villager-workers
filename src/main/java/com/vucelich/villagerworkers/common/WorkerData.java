@@ -113,32 +113,44 @@ public final class WorkerData {
     public static final Codec<WorkerData> CODEC = new Codec<>() {
         @Override
         public <T> DataResult<com.mojang.datafixers.util.Pair<WorkerData, T>> decode(DynamicOps<T> ops, T input) {
-            return STORED.decode(ops, input).flatMap(pair -> {
+            return STORED.decode(ops, input).flatMap(pair -> ops.getMap(input).flatMap(map -> {
                 WorkerData data = pair.getFirst();
-                DataResult<List<UUID>> owners = ops.getMap(input).flatMap(map -> {
-                    T raw = map.get("owners");
-                    if (raw == null) {
-                        return DataResult.success(List.of());
-                    }
-                    return UUIDUtil.STRING_CODEC.listOf().parse(ops, raw);
-                });
+                T rawOwners = map.get("owners");
+                DataResult<List<UUID>> owners = rawOwners == null
+                        ? DataResult.success(List.of())
+                        : UUIDUtil.STRING_CODEC.listOf().parse(ops, rawOwners);
                 if (owners.error().isPresent()) {
                     return DataResult.error(() -> owners.error().get().message());
                 }
                 data.setOwners(owners.result().orElse(List.of()));
-                return DataResult.success(pair);
-            });
+                T rawFounder = map.get("original_owner");
+                if (rawFounder == null) {
+                    data.adoptOriginalOwner(data.owner());
+                    return DataResult.success(pair);
+                }
+                return UUIDUtil.STRING_CODEC.parse(ops, rawFounder).flatMap(id -> {
+                    data.adoptOriginalOwner(id);
+                    return DataResult.success(pair);
+                });
+            }));
         }
 
         @Override
         public <T> DataResult<T> encode(WorkerData input, DynamicOps<T> ops, T prefix) {
             return STORED.encode(input, ops, prefix).flatMap(encoded -> {
-                List<UUID> owners = input.allOwners();
-                if (owners.size() <= 1) {
-                    return DataResult.success(encoded);
+                DataResult<T> body = DataResult.success(encoded);
+                if (input.originalOwner() != null) {
+                    body = UUIDUtil.STRING_CODEC.encodeStart(ops, input.originalOwner())
+                            .flatMap(value -> ops.mergeToMap(encoded, ops.createString("original_owner"), value));
                 }
-                DataResult<T> list = UUIDUtil.STRING_CODEC.listOf().encodeStart(ops, owners);
-                return list.flatMap(value -> ops.mergeToMap(encoded, ops.createString("owners"), value));
+                return body.flatMap(written -> {
+                    List<UUID> owners = input.allOwners();
+                    if (owners.size() <= 1) {
+                        return DataResult.success(written);
+                    }
+                    return UUIDUtil.STRING_CODEC.listOf().encodeStart(ops, owners)
+                            .flatMap(value -> ops.mergeToMap(written, ops.createString("owners"), value));
+                });
             });
         }
     };
@@ -146,6 +158,11 @@ public final class WorkerData {
     // Mojang's record codec accepts at most 16 fields. Rank, crew, and the extra owner list live beside it.
 
     private UUID owner;
+    /**
+     * The player who hired this worker. Sole transfer does not change it.
+     * Absent on a 0.4.9 or early 0.5 save, which adopts the first owner.
+     */
+    private UUID originalOwner;
     /** Owners besides {@link #owner}. The full set is capped at {@link SetupLimits#MAX_OWNERS}. */
     private final List<UUID> coOwners = new ArrayList<>();
     private final List<TrustedPlayer> trusted = new ArrayList<>();
@@ -202,6 +219,7 @@ public final class WorkerData {
     public static WorkerData hire(UUID owner) {
         WorkerData data = new WorkerData();
         data.owner = owner;
+        data.originalOwner = owner;
         data.job = WorkerJob.NONE;
         data.activity = WorkerActivity.IDLE;
         data.rested = false;
@@ -233,6 +251,7 @@ public final class WorkerData {
             List<ItemStack> carryStacks) {
         WorkerData data = new WorkerData();
         data.owner = owner;
+        data.originalOwner = owner;
         data.trusted.addAll(trusted);
         data.job = job;
         data.activity = activity;
@@ -464,6 +483,15 @@ public final class WorkerData {
         return owner;
     }
 
+    /** The hiring player. Sole transfer leaves this in place. */
+    public UUID originalOwner() {
+        return originalOwner;
+    }
+
+    private void adoptOriginalOwner(UUID id) {
+        this.originalOwner = id;
+    }
+
     public void setOwner(UUID owner) {
         this.owner = owner;
     }
@@ -525,6 +553,14 @@ public final class WorkerData {
         }
     }
 
+    /** Drops a co-owner. The primary owner is left in place. */
+    public boolean removeCoOwner(UUID id) {
+        if (id == null || id.equals(owner)) {
+            return false;
+        }
+        return coOwners.remove(id);
+    }
+
     /** Adds an owner. A trusted player with this id is removed from the trusted set. */
     public boolean addOwner(UUID id) {
         if (id == null || isOwner(id) || ownerCount() >= SetupLimits.MAX_OWNERS) {
@@ -535,7 +571,7 @@ public final class WorkerData {
         return true;
     }
 
-    /** One owner remains. Previous owners are not added to the trusted set. */
+    /** One owner remains. Previous owners are not added to the trusted set. The original owner stays. */
     public void transferSoleTo(UUID newOwner) {
         if (newOwner == null) {
             return;

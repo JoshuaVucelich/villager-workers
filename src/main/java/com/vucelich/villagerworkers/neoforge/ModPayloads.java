@@ -1,5 +1,6 @@
 package com.vucelich.villagerworkers.neoforge;
 
+import com.vucelich.villagerworkers.common.SetupLimits;
 import com.vucelich.villagerworkers.common.VillagerWorkers;
 import com.vucelich.villagerworkers.neoforge.client.ClientPayloadHandlers;
 import java.util.ArrayList;
@@ -44,6 +45,8 @@ public final class ModPayloads {
                 WorkerServer.giveWorker(context.player(), payload));
         registrar.playToServer(AddOwnerPayload.TYPE, AddOwnerPayload.STREAM_CODEC, (payload, context) ->
                 WorkerServer.addOwner(context.player(), payload));
+        registrar.playToServer(RemoveOwnerPayload.TYPE, RemoveOwnerPayload.STREAM_CODEC, (payload, context) ->
+                WorkerServer.removeOwner(context.player(), payload));
         if (FMLEnvironment.dist == Dist.CLIENT) {
             ClientPayloadHandlers.register(registrar);
         } else {
@@ -158,7 +161,7 @@ public final class ModPayloads {
         public static final Type<UpdateWhitelistPayload> TYPE = ModPayloads.payloadType("update_whitelist");
         public static final StreamCodec<RegistryFriendlyByteBuf, UpdateWhitelistPayload> STREAM_CODEC = StreamCodec.composite(
                 net.minecraft.core.UUIDUtil.STREAM_CODEC, UpdateWhitelistPayload::villagerId,
-                ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()), UpdateWhitelistPayload::ids,
+                ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list(SetupLimits.MAX_LIST)), UpdateWhitelistPayload::ids,
                 UpdateWhitelistPayload::new);
 
         @Override
@@ -280,8 +283,22 @@ public final class ModPayloads {
                 net.minecraft.core.UUIDUtil.STREAM_CODEC, CrewCommandPayload::villagerId,
                 ByteBufCodecs.STRING_UTF8, CrewCommandPayload::verb,
                 ByteBufCodecs.STRING_UTF8, CrewCommandPayload::scope,
-                net.minecraft.core.UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs.list()), CrewCommandPayload::picked,
+                net.minecraft.core.UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs.list(SetupLimits.MAX_CREW_PICKED)), CrewCommandPayload::picked,
                 CrewCommandPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    /** Removes one co-owner. The primary owner is not removed by this packet. */
+    public record RemoveOwnerPayload(UUID villagerId, UUID ownerId) implements CustomPacketPayload {
+        public static final Type<RemoveOwnerPayload> TYPE = ModPayloads.payloadType("remove_owner");
+        public static final StreamCodec<RegistryFriendlyByteBuf, RemoveOwnerPayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, RemoveOwnerPayload::villagerId,
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, RemoveOwnerPayload::ownerId,
+                RemoveOwnerPayload::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

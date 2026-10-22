@@ -18,11 +18,13 @@ import com.vucelich.villagerworkers.common.WorkerData;
 import com.vucelich.villagerworkers.common.WorkerJob;
 import com.vucelich.villagerworkers.common.WorkerPermissions;
 import com.vucelich.villagerworkers.common.WorkerRank;
+import com.vucelich.villagerworkers.common.WorkerRole;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.AddTrustedPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.PermissionsView;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.Person;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.RemoveTrustedPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.AddOwnerPayload;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.RemoveOwnerPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.AssignForemanPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.CrewCommandPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.GiveWorkerPayload;
@@ -331,6 +333,10 @@ public final class WorkerServer {
                 serverPlayer.sendSystemMessage(Component.literal("Extra blocks cleared."));
             }
             case MenuIds.PROMOTE -> {
+                if (!isOwner(serverPlayer, data)) {
+                    deny(serverPlayer);
+                    return false;
+                }
                 if (data.rank() == WorkerRank.FOREMAN) {
                     serverPlayer.sendSystemMessage(Component.literal("Already a foreman."));
                 } else {
@@ -340,11 +346,15 @@ public final class WorkerServer {
                 }
             }
             case MenuIds.DEMOTE -> {
+                if (!isOwner(serverPlayer, data)) {
+                    deny(serverPlayer);
+                    return false;
+                }
                 if (data.rank() != WorkerRank.FOREMAN) {
                     serverPlayer.sendSystemMessage(Component.literal("This worker is not a foreman."));
                 } else {
                     data.setRank(WorkerRank.WORKER);
-                    releaseCrew(villager);
+                    releaseCrew(serverPlayer, villager);
                     WorkerAttachments.applyLook(villager, data);
                     serverPlayer.sendSystemMessage(Component.literal(displayName(villager) + " is a worker again."));
                 }
@@ -358,6 +368,10 @@ public final class WorkerServer {
                 spreadScaffold(serverPlayer, villager, data);
             }
             case MenuIds.TOGGLE_OVERRIDE -> {
+                if (!isOwner(serverPlayer, data)) {
+                    deny(serverPlayer);
+                    return false;
+                }
                 data.setRulesOverride(!data.rulesOverride());
                 if (!data.rulesOverride()) {
                     copyForemanRules(villager, data);
@@ -502,6 +516,10 @@ public final class WorkerServer {
         if (data == null) {
             return;
         }
+        if (payload.ids() != null && payload.ids().size() > SetupLimits.MAX_LIST) {
+            ((ServerPlayer) player).sendSystemMessage(Component.literal("That block list is too long."));
+            return;
+        }
         List<ResourceLocation> ids = SetupLimits.resourceIds(payload.ids(), false).stream().map(ResourceLocation::parse).toList();
         data.setBreakWhitelist(ids);
         ((ServerPlayer) player).sendSystemMessage(Component.literal("Whitelist saved (" + ids.size() + ")."));
@@ -569,6 +587,27 @@ public final class WorkerServer {
         if (data.ownerCount() == before) {
             return;
         }
+        sendPermissions(serverPlayer, villager, data);
+    }
+
+    public static void removeOwner(Player player, RemoveOwnerPayload payload) {
+        if (!(player instanceof ServerPlayer serverPlayer) || payload == null) {
+            return;
+        }
+        Villager villager = menuVillager(serverPlayer, payload.villagerId());
+        WorkerData data = guarded(serverPlayer, villager, WorkerAction.EDIT_TRUSTED);
+        if (data == null) {
+            return;
+        }
+        if (payload.ownerId() != null && payload.ownerId().equals(data.owner())) {
+            serverPlayer.sendSystemMessage(Component.literal("The primary owner stays until sole ownership is transferred."));
+            return;
+        }
+        if (!data.removeCoOwner(payload.ownerId())) {
+            serverPlayer.sendSystemMessage(Component.literal("That player is not a co-owner."));
+            return;
+        }
+        serverPlayer.sendSystemMessage(Component.literal("Removed a co-owner (" + data.ownerCount() + ")."));
         sendPermissions(serverPlayer, villager, data);
     }
 
@@ -647,23 +686,33 @@ public final class WorkerServer {
             deny(serverPlayer);
             return;
         }
+        if (payload.picked() != null && payload.picked().size() > SetupLimits.MAX_CREW_PICKED) {
+            serverPlayer.sendSystemMessage(Component.literal("That crew list is too long."));
+            return;
+        }
         List<UUID> crew = new ArrayList<>();
         for (Villager member : crewOf(open)) {
             crew.add(member.getUUID());
         }
         List<UUID> targets = CrewLogic.targets(CrewLogic.Scope.byId(payload.scope()), open.getUUID(), crew, payload.picked());
         int changed = 0;
+        int skipped = 0;
         for (UUID id : targets) {
             Villager target = id.equals(open.getUUID()) ? open : findWorker(serverPlayer, id);
             WorkerData data = target == null ? null : WorkerAttachments.get(target).orElse(null);
             if (data == null || !allows(data, serverPlayer, WorkerAction.SET_ACTIVITY)) {
+                skipped++;
                 continue;
             }
             if (applyVerb(serverPlayer, target, data, payload.verb())) {
                 changed++;
             }
         }
-        serverPlayer.sendSystemMessage(Component.literal("Command reached " + changed + " of " + targets.size() + "."));
+        String message = "Command reached " + changed + " of " + targets.size() + ".";
+        if (skipped > 0) {
+            message += " Skipped " + skipped + " you cannot control.";
+        }
+        serverPlayer.sendSystemMessage(Component.literal(message));
         refresh(serverPlayer, open);
     }
 
@@ -693,6 +742,10 @@ public final class WorkerServer {
         }
         if (target.getUUID().equals(data.owner())) {
             serverPlayer.sendSystemMessage(Component.literal("That player already owns this worker."));
+            return;
+        }
+        if (!isOriginalOwner(serverPlayer, data)) {
+            serverPlayer.sendSystemMessage(Component.literal("Only the original owner can transfer this worker."));
             return;
         }
         data.transferSoleTo(target.getUUID());
@@ -769,6 +822,10 @@ public final class WorkerServer {
         }
         if (data.isOwner(target.getUUID()) && data.ownerCount() == 1) {
             serverPlayer.sendSystemMessage(Component.literal("That player already owns this worker."));
+            return;
+        }
+        if (!isOriginalOwner(serverPlayer, data)) {
+            serverPlayer.sendSystemMessage(Component.literal("Only the original owner can transfer this worker."));
             return;
         }
         data.transferSoleTo(target.getUUID());
@@ -909,7 +966,16 @@ public final class WorkerServer {
             player.sendSystemMessage(Component.literal(loaded.error()));
             return;
         }
-        List<Villager> crew = new ArrayList<>(crewOf(villager));
+        List<Villager> crew = new ArrayList<>();
+        int skipped = 0;
+        for (Villager member : crewOf(villager)) {
+            WorkerData memberData = WorkerAttachments.get(member).orElse(null);
+            if (memberData == null || !allows(memberData, player, WorkerAction.EDIT_SETUP)) {
+                skipped++;
+                continue;
+            }
+            crew.add(member);
+        }
         crew.sort(java.util.Comparator.comparing(member -> member.getUUID().toString()));
         int[][] bands = StructurePlan.bands(loaded.minY(), loaded.maxY(), crew.size());
         int assigned = Math.min(bands.length, crew.size());
@@ -921,8 +987,11 @@ public final class WorkerServer {
             member.setJob(WorkerJob.BUILDER);
             member.setBuilder(data.builder().withLayers(bands[i][0], bands[i][1]));
         }
-        player.sendSystemMessage(Component.literal(
-                "Split layers " + loaded.minY() + " to " + loaded.maxY() + " across " + assigned + " workers."));
+        String message = "Split layers " + loaded.minY() + " to " + loaded.maxY() + " across " + assigned + " workers.";
+        if (skipped > 0) {
+            message += " Skipped " + skipped + " you cannot control.";
+        }
+        player.sendSystemMessage(Component.literal(message));
     }
 
     private static boolean applyActivity(ServerPlayer player, WorkerData data, Optional<WorkerActivity> next) {
@@ -1052,10 +1121,27 @@ public final class WorkerServer {
         return crew;
     }
 
-    private static void releaseCrew(Villager foreman) {
+    private static void releaseCrew(ServerPlayer player, Villager foreman) {
+        int skipped = 0;
         for (Villager member : crewOf(foreman)) {
-            WorkerAttachments.get(member).ifPresent(data -> data.setForeman(null));
+            WorkerData data = WorkerAttachments.get(member).orElse(null);
+            if (data == null || !allows(data, player, WorkerAction.EDIT_SETUP)) {
+                skipped++;
+                continue;
+            }
+            data.setForeman(null);
         }
+        if (skipped > 0) {
+            player.sendSystemMessage(Component.literal("Skipped " + skipped + " crew members you cannot control."));
+        }
+    }
+
+    private static boolean isOwner(ServerPlayer player, WorkerData data) {
+        return WorkerPermissions.role(data.owner(), data.coOwnerIds(), data.trustedIds(), player.getUUID()) == WorkerRole.OWNER;
+    }
+
+    private static boolean isOriginalOwner(ServerPlayer player, WorkerData data) {
+        return player.getUUID().equals(data.originalOwner());
     }
 
     private static boolean mayEditOwnRules(ServerPlayer player, WorkerData data) {
@@ -1083,11 +1169,21 @@ public final class WorkerServer {
             return;
         }
         List<WorkerData> members = new ArrayList<>();
+        int skipped = 0;
         for (Villager member : crewOf(villager)) {
-            WorkerAttachments.get(member).ifPresent(members::add);
+            WorkerData memberData = WorkerAttachments.get(member).orElse(null);
+            if (memberData == null || !allows(memberData, player, WorkerAction.EDIT_SETUP)) {
+                skipped++;
+                continue;
+            }
+            members.add(memberData);
         }
         int updated = CrewLogic.applyScaffoldRule(data, members);
-        player.sendSystemMessage(Component.literal("Scaffold rule reached " + updated + " crew members."));
+        String message = "Scaffold rule reached " + updated + " crew members.";
+        if (skipped > 0) {
+            message += " Skipped " + skipped + " you cannot control.";
+        }
+        player.sendSystemMessage(Component.literal(message));
     }
 
     private static void copyForemanRules(Villager villager, WorkerData data) {

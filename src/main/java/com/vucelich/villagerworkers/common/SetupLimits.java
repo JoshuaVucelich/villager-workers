@@ -19,6 +19,8 @@ public final class SetupLimits {
             "minecraft:amethyst_shard");
 
     public static final int MAX_LIST = 64;
+    /** Come, stay, and work packets may name at most this many ticked villagers. */
+    public static final int MAX_CREW_PICKED = 64;
     public static final int MAX_MATERIAL_CHESTS = 8;
     public static final int MAX_TRUSTED = 16;
     public static final int MAX_OWNERS = 8;
