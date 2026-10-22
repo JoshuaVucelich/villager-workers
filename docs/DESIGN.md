@@ -285,7 +285,7 @@ The predicate allows a break only when all of the following are true:
 
 Whitelist entries exempt only rules 6 and 7. They do not exempt the volume, the reach check, the global denylist, linked chests, or the owner permission check.
 
-Drops are inserted by item id: valuables list to the valuables chest, everything else to the regular chest. Lumberjack logs go to the log chest, and saplings the worker picks up go to the sapling chest. Nothing is voided. A full or missing chest pauses the job and messages the owner.
+Drops from a break go into the villager inventory first. The break uses destroyBlock with item drops disabled, so the break itself spawns no item entities. Anything that does not fit goes to the assigned chest: valuables to the valuables chest, other miner drops to the regular chest, lumberjack logs to the log chest, and saplings to the sapling chest. If that chest is missing or full, the rest is dropped as item entities and the owner is told. The job keeps working.
 
 Tools come from the tool chest: an axe for the lumberjack, a pickaxe for the miner. The worker equips one, and vanilla durability applies. At 1 remaining durability the worker stops, returns the tool if it can, and messages the owner. On death the equipped tool drops with the villager. On stop or idle the tool is put back in the tool chest when that chest has room.
 

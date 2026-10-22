@@ -2,6 +2,7 @@ package com.vucelich.villagerworkers.neoforge;
 
 import com.vucelich.villagerworkers.common.ActionPace;
 import com.vucelich.villagerworkers.common.BreakRules;
+import com.vucelich.villagerworkers.common.InventoryPickup;
 import com.vucelich.villagerworkers.common.ProblemCode;
 import com.vucelich.villagerworkers.common.SaplingKinds;
 import com.vucelich.villagerworkers.common.WorkVolumes;
@@ -386,9 +387,6 @@ public final class JobRunner {
             pause(villager, data, runtime, ProblemCode.BROKEN_TOOL, "");
             return;
         }
-        if (!destinationReady(level, villager, data, runtime, state)) {
-            return;
-        }
         float hardness = state.getDestroySpeed(level, pos);
         float step = hardness == 0.0F
                 ? 1.0F
@@ -440,7 +438,7 @@ public final class JobRunner {
         if (tool.isDamageableItem()) {
             tool.hurtAndBreak(1, villager, EquipmentSlot.MAINHAND);
         }
-        Deposit deposit = putDrops(level, villager, data, drops);
+        boolean told = putDrops(level, villager, data, drops);
         runtime.breaking = null;
         runtime.progress = 0;
         runtime.cooldownUntil = level.getGameTime() + ActionPace.ticksBetweenActions(data.rested());
@@ -448,9 +446,7 @@ public final class JobRunner {
         if (runtime.treeIndex < runtime.tree.size() && pos.equals(runtime.tree.get(runtime.treeIndex))) {
             runtime.treeIndex++;
         }
-        if (deposit != Deposit.OK) {
-            pause(villager, data, runtime, deposit == Deposit.MISSING ? ProblemCode.MISSING_CHEST : ProblemCode.CHEST_FULL, "");
-        } else {
+        if (!told) {
             clearSolved(data);
         }
     }
@@ -536,16 +532,8 @@ public final class JobRunner {
             if (stack.isEmpty()) {
                 continue;
             }
-            BlockPos chestPos = data.lumberjack().saplingChest().orElse(null);
-            if (chestPos == null) {
-                continue;
-            }
-            Deposit deposit = store(level, villager, chestPos, stack.copy());
             entity.discard();
-            if (deposit != Deposit.OK) {
-                pause(villager, data, runtime, deposit == Deposit.MISSING ? ProblemCode.MISSING_CHEST : ProblemCode.CHEST_FULL, "");
-                return;
-            }
+            putDrops(level, villager, data, List.of(stack.copy()));
         }
     }
 
@@ -667,43 +655,54 @@ public final class JobRunner {
         return true;
     }
 
-    private static boolean destinationReady(ServerLevel level, Villager villager, WorkerData data, Runtime runtime, BlockState state) {
-        if (data.job() == WorkerJob.LUMBERJACK) {
-            if (data.lumberjack().logChest().isEmpty() || ContainerAccess.open(level, data.lumberjack().logChest().orElse(null)) == null) {
-                pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
-                return false;
-            }
-            return true;
-        }
-        if (data.miner().regularChest().isEmpty()
-                || data.miner().valuablesChest().isEmpty()
-                || ContainerAccess.open(level, data.miner().regularChest().orElse(null)) == null
-                || ContainerAccess.open(level, data.miner().valuablesChest().orElse(null)) == null) {
-            pause(villager, data, runtime, ProblemCode.MISSING_CHEST, "");
-            return false;
-        }
-        return true;
-    }
-
-    private enum Deposit {
-        OK,
-        MISSING,
-        FULL
-    }
-
-    private static Deposit putDrops(ServerLevel level, Villager villager, WorkerData data, List<ItemStack> drops) {
-        Deposit result = Deposit.OK;
+    /**
+     * Inventory first, then the assigned chest. A leftover is spawned and the owner is told.
+     * {@code destroyBlock} is called with drops disabled, so this is the only place a break can spawn items.
+     */
+    private static boolean putDrops(ServerLevel level, Villager villager, WorkerData data, List<ItemStack> drops) {
+        boolean told = false;
+        ProblemCode code = ProblemCode.CHEST_FULL;
         for (ItemStack drop : drops) {
             if (drop.isEmpty()) {
                 continue;
             }
             BlockPos chestPos = chestFor(data, drop);
-            Deposit one = store(level, villager, chestPos, drop.copy());
-            if (one != Deposit.OK) {
-                result = one;
+            Container chest = ContainerAccess.open(level, chestPos);
+            boolean assigned = chest != null;
+            InventoryPickup.Outcome outcome = InventoryPickup.plan(
+                    drop.getCount(),
+                    InventoryPickup.room(villager.getInventory(), drop),
+                    assigned ? InventoryPickup.room(chest, drop) : 0,
+                    assigned);
+            ItemStack moving = drop.copy();
+            if (outcome.inventory() > 0) {
+                moving = returnRemainder(moving, ContainerAccess.insert(villager.getInventory(), moving.split(outcome.inventory())));
+            }
+            if (outcome.chest() > 0 && assigned && !moving.isEmpty()) {
+                int take = Math.min(outcome.chest(), moving.getCount());
+                moving = returnRemainder(moving, ContainerAccess.insert(chest, moving.split(take)));
+            }
+            if (!moving.isEmpty()) {
+                spawn(villager, moving);
+                told = true;
+                code = assigned ? ProblemCode.CHEST_FULL : ProblemCode.MISSING_CHEST;
             }
         }
-        return result;
+        if (told) {
+            OwnerNotices.report(villager, data, code, "");
+        }
+        return told;
+    }
+
+    private static ItemStack returnRemainder(ItemStack moving, ItemStack rejected) {
+        if (rejected.isEmpty()) {
+            return moving;
+        }
+        if (moving.isEmpty()) {
+            return rejected;
+        }
+        moving.grow(rejected.getCount());
+        return moving;
     }
 
     private static BlockPos chestFor(WorkerData data, ItemStack drop) {
@@ -716,24 +715,6 @@ public final class JobRunner {
         ResourceLocation id = BuiltInRegistries.ITEM.getKey(drop.getItem());
         boolean valuable = data.miner().valuables().stream().anyMatch(id::equals);
         return valuable ? data.miner().valuablesChest().orElse(null) : data.miner().regularChest().orElse(null);
-    }
-
-    private static Deposit store(ServerLevel level, Villager villager, BlockPos chestPos, ItemStack stack) {
-        if (chestPos == null) {
-            spawn(villager, stack);
-            return Deposit.OK;
-        }
-        Container chest = ContainerAccess.open(level, chestPos);
-        if (chest == null) {
-            spawn(villager, stack);
-            return Deposit.MISSING;
-        }
-        ItemStack left = ContainerAccess.insert(chest, stack);
-        if (!left.isEmpty()) {
-            spawn(villager, left);
-            return Deposit.FULL;
-        }
-        return Deposit.OK;
     }
 
     private enum BreakGate {
