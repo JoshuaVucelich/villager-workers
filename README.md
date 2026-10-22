@@ -2,7 +2,7 @@
 
 NeoForge mod for Minecraft 1.21.1. You rename a villager with a name tag and hire them as a worker. Workers stay villagers: they can die, heal by eating food, and breed. A baby is a normal villager.
 
-Hiring, ownership, hard hats, foremen, crews, inventory pickup, schematic building, the worker screen, chat commands, rest tracking, lumberjack, miner, and the Create schematic builder are implemented. See [docs/DESIGN.md](docs/DESIGN.md) and [docs/MILESTONES.md](docs/MILESTONES.md).
+Hiring, ownership, hard hats, foremen, crews, inventory pickup, schematic building, scaffolding, the worker screen, chat commands, rest tracking, lumberjack, miner, and the Create schematic builder are implemented. See [docs/DESIGN.md](docs/DESIGN.md) and [docs/MILESTONES.md](docs/MILESTONES.md).
 
 The mod is aimed at a pack that also runs Create 6.0.x and Create Aeronautics. Create is an optional dependency: the mod loads without it, and the builder starts only when Create is installed. Workers must not break Create or Aeronautics blocks unless that worker's whitelist names the block.
 
@@ -18,7 +18,9 @@ The mod is aimed at a pack that also runs Create 6.0.x and Create Aeronautics. C
 ./gradlew build
 ```
 
-The mod jar is written to `build/libs/villager_workers-0.5.5.jar`.
+The mod jar is written to `build/libs/villager_workers-0.5.6.jar`.
+
+Create's schematic upload cap is `schematics.maxTotalSchematicSize` in `create-server.toml`. The value is in kilobytes and the check multiplies by 1000. The default 256 allows 256000 bytes. Change that config to allow a larger upload. This mod does not patch the check.
 
 A development client:
 

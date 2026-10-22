@@ -285,6 +285,8 @@ The predicate allows a break only when all of the following are true:
 
 Whitelist entries exempt only rules 6 and 7. They do not exempt the volume, the reach check, the global denylist, linked chests, or the owner permission check.
 
+Create's schematic upload cap is the server config `schematics.maxTotalSchematicSize`. The unit in Create's comment is KiloBytes, and the server rejects an upload larger than that number times 1000. The default 256 is 256000 bytes. Raising the config is enough. This mod does not mixin that check.
+
 A high schematic block gets a rising stair. The worker prefers vanilla scaffolding, then Create andesite scaffolding (`create:andesite_scaffolding`), then a spare block. Plain-only skips scaffolding even when it is stored. The stair comes down from the top at the end and the items go back to the inventory or a chest. The foreman's scaffold setting is part of the builder rules, so the crew follows it unless override is on. The stair is built only during that worker's build.
 
 A builder with a schematic file places that gzipped structure from the anchor, bottom layer first inside each numbered part, and numbered parts in order. Materials come from Create's ItemRequirement when Create is installed, and from the block id otherwise. Blocks are pulled from the villager inventory and then the material chests. Missing materials are reported to the owners. Build now places every block at once, and only for a creative player who can edit the worker. The pace is `schematicBlocksPerAction` (default 1) and runs only while that worker is building. Aeronautics ships are left as plain blocks for the player to assemble.
