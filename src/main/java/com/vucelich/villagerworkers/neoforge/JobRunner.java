@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -75,6 +76,10 @@ import net.neoforged.neoforge.event.level.BlockEvent;
  */
 public final class JobRunner {
     private static final Map<UUID, Runtime> RUNTIMES = new ConcurrentHashMap<>();
+    /** Villagers whose offline-owner waits are counted. Empty means nobody is counted. */
+    private static final Set<UUID> OWNER_AWAY_WATCH = ConcurrentHashMap.newKeySet();
+    private static final AtomicLong OWNER_AWAY_WAITS = new AtomicLong();
+    private static final AtomicLong SCANS_PAST_OWNER = new AtomicLong();
     private static final int SCAN_BUDGET = 128;
     private static final int TREE_LIMIT = 128;
 
@@ -155,12 +160,18 @@ public final class JobRunner {
             restartPass(runtime);
         }
         if (waitsForOwner(data) && owner(villager, data) == null) {
+            if (OWNER_AWAY_WATCH.contains(villager.getUUID())) {
+                OWNER_AWAY_WAITS.incrementAndGet();
+            }
             long now = level.getGameTime();
             if (now < runtime.ownerAwayUntil) {
                 return;
             }
             runtime.ownerAwayUntil = now + WorkerSettings.offlineOwnerBackoffTicks();
             return;
+        }
+        if (OWNER_AWAY_WATCH.contains(villager.getUUID()) && waitsForOwner(data)) {
+            SCANS_PAST_OWNER.incrementAndGet();
         }
         runtime.ownerAwayUntil = 0L;
         AssemblyGuards.poll(level);
@@ -463,6 +474,33 @@ public final class JobRunner {
             }
         }
         return null;
+    }
+
+    /**
+     * Count offline-owner waits for these villagers only.
+     * Other workers ticking on the same server are ignored.
+     */
+    public static void watchOwnerAway(Collection<UUID> ids) {
+        OWNER_AWAY_WATCH.clear();
+        OWNER_AWAY_WAITS.set(0L);
+        SCANS_PAST_OWNER.set(0L);
+        if (ids != null) {
+            OWNER_AWAY_WATCH.addAll(ids);
+        }
+    }
+
+    public static void stopWatchingOwnerAway() {
+        OWNER_AWAY_WATCH.clear();
+    }
+
+    /** Ticks a watched miner or lumberjack returned before scanning because the owner was offline. */
+    public static long ownerAwayWaits() {
+        return OWNER_AWAY_WAITS.get();
+    }
+
+    /** Ticks a watched miner or lumberjack continued past that gate. */
+    public static long scansPastOwner() {
+        return SCANS_PAST_OWNER.get();
     }
 
     /** Miners and lumberjacks break blocks in the owner's name, so they wait while that player is offline. */

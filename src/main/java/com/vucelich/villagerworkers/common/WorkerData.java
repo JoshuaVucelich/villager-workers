@@ -128,10 +128,13 @@ public final class WorkerData {
                     data.adoptOriginalOwner(data.owner());
                     return DataResult.success(pair);
                 }
-                return UUIDUtil.STRING_CODEC.parse(ops, rawFounder).flatMap(id -> {
-                    data.adoptOriginalOwner(id);
+                DataResult<UUID> founder = UUIDUtil.STRING_CODEC.parse(ops, rawFounder);
+                if (founder.error().isPresent() || founder.result().isEmpty()) {
+                    data.adoptOriginalOwner(data.owner());
                     return DataResult.success(pair);
-                });
+                }
+                data.adoptOriginalOwner(founder.result().get());
+                return DataResult.success(pair);
             }));
         }
 

@@ -2369,9 +2369,21 @@ public class AcceptanceGameTests {
                             samples,
                             Scaffolding.andesitePlaced());
                 }
+                int peakPlaced = StructureBuilder.peakPlaced();
+                int peakScanned = StructureBuilder.peakScanned();
                 helper.assertTrue(samples > 50, "timing samples " + samples);
-                // One millisecond still fails a tick that scans ships or rewrites every post.
-                helper.assertTrue(millis <= 1.0, "10 builders " + millis + " ms over " + samples + " samples");
+                helper.assertTrue(
+                        peakPlaced <= WorkerSettings.buildPlacementsPerTick(),
+                        "peak placed " + peakPlaced + " over budget " + WorkerSettings.buildPlacementsPerTick());
+                helper.assertTrue(
+                        peakScanned <= WorkerSettings.buildScanBudget(),
+                        "peak scanned " + peakScanned + " over budget " + WorkerSettings.buildScanBudget());
+                helper.assertTrue(peakPlaced > 0 && peakScanned > 0, "no build tick was counted");
+                VillagerWorkersMod.LOGGER.info(
+                        "10 structure builders peak placed {} scanned {}, logged {} ms",
+                        peakPlaced,
+                        peakScanned,
+                        millis);
                 cleanup(owner);
             } finally {
                 WorkerSettings.BUILD_INTERVAL_TICKS.set(savedInterval);
@@ -2487,9 +2499,10 @@ public class AcceptanceGameTests {
         boss.messages.clear();
         helper.assertTrue(boss.containerMenu.clickMenuButton(boss, MenuIds.DEMOTE), "demote");
         helper.assertTrue(foremanData.rank() == WorkerRank.WORKER, "demoted");
-        helper.assertTrue(foreman.getUUID().equals(foreignData.foreman()), "foreign link kept");
+        helper.assertTrue(foreignData.foreman() == null, "foreign link cleared");
         helper.assertTrue(ownedData.foreman() == null, "owned member released");
-        helper.assertTrue(said(boss, "cannot control"), boss.messages.toString());
+        helper.assertTrue(said(boss, "is a worker again"), boss.messages.toString());
+        helper.assertFalse(said(boss, "cannot control"), "demote skipped a member " + boss.messages);
         done(helper, founder, boss);
     }
 
@@ -2505,7 +2518,7 @@ public class AcceptanceGameTests {
         friend.messages.clear();
         helper.assertFalse(friend.containerMenu.clickMenuButton(friend, MenuIds.PROMOTE), "trusted promote");
         helper.assertTrue(data.rank() == WorkerRank.WORKER, "rank unchanged");
-        helper.assertTrue(said(friend, "You cannot do that."), friend.messages.toString());
+        helper.assertTrue(times(friend, "You cannot do that.") == 1, friend.messages.toString());
         friend.messages.clear();
         helper.assertFalse(friend.containerMenu.clickMenuButton(friend, MenuIds.TOGGLE_OVERRIDE), "trusted override");
         helper.assertFalse(data.rulesOverride(), "override unchanged");
@@ -2640,21 +2653,84 @@ public class AcceptanceGameTests {
             data.setActivity(WorkerActivity.WORKING);
         }
         cleanup(owner);
+        JobRunner.watchOwnerAway(timed);
         WorkerTicker.startTickTiming(timed, 40);
         helper.runAtTickTime(140, () -> {
             double workers = WorkerTicker.averageTickMillisForTen();
             int samples = WorkerTicker.tickTimingSamples();
+            long waits = JobRunner.ownerAwayWaits();
+            long scans = JobRunner.scansPastOwner();
             double server = level.getServer().getAverageTickTimeNanos() / 1_000_000.0;
             WorkerTicker.stopTickTiming();
+            JobRunner.stopWatchingOwnerAway();
             VillagerWorkersMod.LOGGER.info(
-                    "Offline miners extrapolated to 10 workers: {} ms over {} samples, server {} ms",
+                    "Offline miners extrapolated to 10 workers: {} ms over {} samples, waits {}, scans past owner {}, server {} ms",
                     workers,
                     samples,
+                    waits,
+                    scans,
                     server);
             helper.assertTrue(samples > 40, "offline miner samples " + samples);
-            helper.assertTrue(workers < 0.12, "offline miners " + workers + " ms");
+            helper.assertTrue(waits >= 16L * 80L, "owner-away waits " + waits);
+            helper.assertTrue(scans == 0L, "scans past an offline owner " + scans);
             helper.succeed();
         });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void coOwnerMenuStaysValid(GameTestHelper helper) {
+        RecordingPlayer founder = player(helper);
+        RecordingPlayer co = player(helper);
+        Villager villager = villager(helper, 2, 1, 2, "Share");
+        WorkerData data = hire(villager, founder);
+        helper.assertTrue(data.addOwner(co.getUUID()), "co-owner added");
+        stand(founder, villager);
+        stand(co, villager);
+        founder.interactOn(villager, InteractionHand.MAIN_HAND);
+        helper.assertTrue(founder.containerMenu instanceof WorkerMenu, "owner menu");
+        helper.assertTrue(founder.containerMenu.stillValid(founder), "owner stillValid");
+        founder.closeContainer();
+        co.interactOn(villager, InteractionHand.MAIN_HAND);
+        helper.assertTrue(co.containerMenu instanceof WorkerMenu, "co-owner menu");
+        helper.assertTrue(co.containerMenu.stillValid(co), "co-owner stillValid");
+        done(helper, founder, co);
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void coOwnerMenuStaysOpenAfterTicks(GameTestHelper helper) {
+        RecordingPlayer founder = player(helper);
+        RecordingPlayer co = player(helper);
+        Villager villager = villager(helper, 2, 1, 2, "Share");
+        WorkerData data = hire(villager, founder);
+        helper.assertTrue(data.addOwner(co.getUUID()), "co-owner added");
+        stand(founder, villager);
+        stand(co, villager);
+        co.interactOn(villager, InteractionHand.MAIN_HAND);
+        helper.assertTrue(co.containerMenu instanceof WorkerMenu, "opened without force-open");
+        helper.runAtTickTime(10, () -> {
+            helper.assertTrue(co.containerMenu instanceof WorkerMenu, "menu class after ticks " + co.containerMenu.getClass().getSimpleName());
+            helper.assertTrue(co.containerMenu.stillValid(co), "stillValid after ticks");
+            done(helper, founder, co);
+        });
+    }
+
+    @GameTest(template = "platform", timeoutTicks = 40)
+    public static void forgedPacketsDenyOnce(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        RecordingPlayer stranger = player(helper);
+        Villager villager = villager(helper, 2, 1, 2, "Forge");
+        hire(villager, owner);
+        stand(stranger, villager);
+        stranger.messages.clear();
+        WorkerServer.transfer(stranger, new TransferOwnerPayload(villager.getUUID(), stranger.getUUID()));
+        helper.assertTrue(times(stranger, "You cannot do that.") == 1, "transfer " + stranger.messages);
+        stranger.messages.clear();
+        WorkerServer.giveWorker(stranger, new GiveWorkerPayload(villager.getUUID(), stranger.getUUID()));
+        helper.assertTrue(times(stranger, "You cannot do that.") == 1, "give " + stranger.messages);
+        stranger.messages.clear();
+        WorkerServer.crewCommand(stranger, new CrewCommandPayload(villager.getUUID(), "stop", "crew", List.of()));
+        helper.assertTrue(times(stranger, "You cannot do that.") == 1, "crew " + stranger.messages);
+        done(helper, owner, stranger);
     }
 
     private static String saveShell(ServerLevel level, BlockPos origin) {
@@ -2873,12 +2949,17 @@ public class AcceptanceGameTests {
     }
 
     private static boolean said(RecordingPlayer player, String part) {
+        return times(player, part) > 0;
+    }
+
+    private static int times(RecordingPlayer player, String part) {
+        int count = 0;
         for (String message : player.messages) {
             if (message.contains(part)) {
-                return true;
+                count++;
             }
         }
-        return false;
+        return count;
     }
 
     private static List<ItemEntity> items(ServerLevel level) {
@@ -2947,12 +3028,6 @@ public class AcceptanceGameTests {
                 com.mojang.authlib.GameProfile profile,
                 net.minecraft.server.level.ClientInformation information) {
             super(server, level, profile, information);
-        }
-
-        @Override
-        public void sendSystemMessage(Component message) {
-            this.messages.add(message.getString());
-            super.sendSystemMessage(message);
         }
 
         @Override

@@ -27,7 +27,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     private static final int TAB_STORAGE = 2;
     private static final int TAB_INVENTORY = 3;
     private static final int TAB_SETTINGS = 4;
-    private static final int PAGE = 6;
+    private static final int PAGE = 4;
 
     private int tab = TAB_JOB;
     private int valuablePage;
@@ -89,7 +89,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         WorkerView view = this.menu.view();
         if ("foreman".equals(view.rank())) {
             addRenderableWidget(action("Demote", "This foreman becomes a worker again. The orange hat comes off.", x + 116, y, 80, MenuIds.DEMOTE));
-        } else {
+        } else if (view.viewerIsOwner()) {
             addRenderableWidget(action("Promote to Foreman", "Orange hard hat, a clipboard, and a rolled blueprint.", x + 116, y, 124, MenuIds.PROMOTE));
         }
         initCrew(view, x, y + 22);
@@ -116,7 +116,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
             askedPeople = true;
             click(MenuIds.SHOW_PERMISSIONS);
         }
-        if (!foreman) {
+        if (!foreman && view.viewerIsOwner()) {
             addRenderableWidget(action(
                     view.rulesOverride() ? "Own rules: on" : "Own rules: off",
                     "On: this worker keeps its own scaffold rule. Off: the foreman's crew rule applies.",
@@ -124,8 +124,11 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
                     y + 18,
                     100,
                     MenuIds.TOGGLE_OVERRIDE));
+        }
+        if (!foreman) {
+            int labelX = view.viewerIsOwner() ? x + 104 : x;
             addRenderableWidget(Button.builder(Component.literal("Foreman: " + view.foremanLabel()), ignored -> {})
-                    .bounds(x + 104, y + 18, 140, 16)
+                    .bounds(labelX, y + 18, 140, 16)
                     .tooltip(Tooltip.create(Component.literal("The foreman this worker reports to.")))
                     .build());
             int column = 0;
@@ -345,18 +348,16 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
                 .tooltip(Tooltip.create(Component.literal("Next ores and valuables.")))
                 .build());
         y += 18;
-        for (int row = 0; row < 3; row++) {
-            for (int column = 0; column < 2; column++) {
-                int index = start + row * 2 + column;
-                if (index >= catalog.size()) {
-                    return;
-                }
-                ResourceLocation id = catalog.get(index);
-                boolean on = listed(view.valuables(), id.toString());
-                String label = (on ? "[x] " : "[ ] ") + shortName(id.toString());
-                int bx = x + column * 124;
-                addRenderableWidget(action(label, id.toString(), bx, y + row * 18, 120, MenuIds.VALUABLE_BASE + index));
+        int labelWidth = WorkerMenu.CARRY_X - 16;
+        for (int row = 0; row < PAGE; row++) {
+            int index = start + row;
+            if (index >= catalog.size() || y + row * 18 + 16 > this.topPos + this.imageHeight - 8) {
+                break;
             }
+            ResourceLocation id = catalog.get(index);
+            boolean on = listed(view.valuables(), id.toString());
+            String label = (on ? "[x] " : "[ ] ") + id.getPath();
+            addRenderableWidget(action(label, id.toString(), x, y + row * 18, labelWidth, MenuIds.VALUABLE_BASE + index));
         }
     }
 
@@ -521,29 +522,20 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         String rank = "foreman".equals(view.rank()) ? "Foreman" : "Worker";
         String title = rank + "  Job " + view.job();
         graphics.drawString(this.font, title, 8, 26, "foreman".equals(view.rank()) ? 0xFFB347 : 0xFFE066, false);
-        graphics.drawString(this.font, problem, 8 + this.font.width(title + "  "), 26, problemColor, false);
+        int problemX = 8 + this.font.width(title + "  ");
+        int problemRoom = WorkerMenu.PANEL_WIDTH - problemX - 8;
+        graphics.drawString(this.font, this.font.plainSubstrByWidth(problem, Math.max(problemRoom, 0)), problemX, 26, problemColor, false);
     }
 
     private static String detail(WorkerView view) {
         return switch (view.job()) {
-            case "lumberjack" -> trim("Area " + view.areaText() + "  logs " + view.logChest() + "  saplings " + view.saplingChest());
-            case "miner" -> trim("clear_box".equals(view.minerMode())
+            case "lumberjack" -> "Area " + view.areaText() + "  logs " + view.logChest() + "  saplings " + view.saplingChest();
+            case "miner" -> "clear_box".equals(view.minerMode())
                     ? "Area " + view.areaText() + "  regular " + view.regularChest() + "  valuables " + view.valuablesChest()
-                    : "Origin " + view.originText() + "  regular " + view.regularChest() + "  valuables " + view.valuablesChest());
-            case "builder" -> trim(view.structureText() + "  " + view.materialsText());
+                    : "Origin " + view.originText() + "  regular " + view.regularChest() + "  valuables " + view.valuablesChest();
+            case "builder" -> view.structureText() + "  " + view.materialsText();
             default -> "Pick a job. Nothing is broken or built yet.";
         };
-    }
-
-    private static String trim(String text) {
-        return text.length() > 40 ? text.substring(0, 37) + "..." : text;
-    }
-
-    private static String trimWide(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.length() > 70 ? text.substring(0, 67) + "..." : text;
     }
 
     private static int activityColor(String activity) {
@@ -596,29 +588,61 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
             graphics.drawString(this.font, "Shift-click moves items in or out.", this.leftPos + 8, this.topPos + 74, 0xC8BBA8, false);
             graphics.drawString(this.font, "Mined items wait here for a chest.", this.leftPos + 8, this.topPos + 86, 0xC8BBA8, false);
         } else if (tab == TAB_JOB) {
-            graphics.drawString(this.font, "Menu holds the worker.", this.leftPos + WorkerMenu.CARRY_X, this.topPos + 6, 0xC8BBA8, false);
-            String detail = detail(this.menu.view());
-            if (detail.length() > 24) {
-                detail = detail.substring(0, 21) + "...";
-            }
-            graphics.drawString(this.font, detail, this.leftPos + WorkerMenu.CARRY_X, this.topPos + 16, 0xC8BBA8, false);
+            int textX = this.leftPos + WorkerMenu.CARRY_X;
+            int width = WorkerMenu.PANEL_WIDTH - WorkerMenu.CARRY_X - 6;
+            graphics.drawString(this.font, "Menu holds the worker.", textX, this.topPos + 6, 0xC8BBA8, false);
+            drawFitted(graphics, detail(this.menu.view()), textX, this.topPos + 16, width, this.topPos + WorkerMenu.CARRY_Y - 2, 0xC8BBA8);
         } else if (tab == TAB_AREA && "lumberjack".equals(this.menu.view().job())) {
-            graphics.drawString(this.font, detail(this.menu.view()), this.leftPos + 8, this.topPos + 82, 0xC8BBA8, false);
+            drawFitted(graphics, detail(this.menu.view()), this.leftPos + 8, this.topPos + 82, WorkerMenu.CARRY_X - 16, panelBottom(), 0xC8BBA8);
         } else if (tab == TAB_STORAGE) {
-            graphics.drawString(this.font, detail(this.menu.view()), this.leftPos + 8, this.topPos + 82, 0xC8BBA8, false);
+            drawFitted(graphics, detail(this.menu.view()), this.leftPos + 8, this.topPos + 82, WorkerMenu.CARRY_X - 16, panelBottom(), 0xC8BBA8);
         } else if (tab == TAB_SETTINGS) {
             WorkerView view = this.menu.view();
             String extra = view.whitelist() == null || view.whitelist().isEmpty() ? "none" : view.whitelist();
-            graphics.drawString(this.font, trim("Extra blocks: " + extra), this.leftPos + 8, this.topPos + 78, 0xC8BBA8, false);
+            drawFitted(graphics, "Extra blocks: " + extra, this.leftPos + 8, this.topPos + 78, WorkerMenu.CARRY_X - 16, panelBottom(), 0xC8BBA8);
             if (!view.viewerIsOwner()) {
-                graphics.drawString(this.font, "Only the owner can change who uses this worker.", this.leftPos + 8, this.topPos + 96, 0xFFAA55, false);
+                drawFitted(
+                        graphics,
+                        "Only the owner can change who uses this worker.",
+                        this.leftPos + 8,
+                        this.topPos + 96,
+                        WorkerMenu.CARRY_X - 16,
+                        panelBottom(),
+                        0xFFAA55);
             }
         } else if (tab == TAB_AREA && "builder".equals(this.menu.view().job())) {
             WorkerView view = this.menu.view();
-            graphics.drawString(this.font, trimWide(view.structureText()), this.leftPos + 8, this.topPos + 96, 0xC8BBA8, false);
-            graphics.drawString(this.font, trimWide(view.materialsText()), this.leftPos + 8, this.topPos + 108, 0xC8BBA8, false);
-            graphics.drawString(this.font, "Link material chests on Storage. Files go in villager_workers/schematics.", this.leftPos + 8, this.topPos + 120, 0xC8BBA8, false);
+            int width = WorkerMenu.CARRY_X - 16;
+            int bottom = panelBottom();
+            drawFitted(graphics, view.structureText(), this.leftPos + 8, this.topPos + 96, width, bottom, 0xC8BBA8);
+            drawFitted(graphics, view.materialsText(), this.leftPos + 8, this.topPos + 116, width, bottom, 0xC8BBA8);
+            drawFitted(
+                    graphics,
+                    "Link material chests on Storage. Files go in villager_workers/schematics.",
+                    this.leftPos + 8,
+                    this.topPos + 136,
+                    width,
+                    bottom,
+                    0xC8BBA8);
         }
+    }
+
+    /** Draws wrapped lines that stay above {@code bottom}, inside the 416 by 232 panel. */
+    private void drawFitted(GuiGraphics graphics, String text, int x, int y, int width, int bottom, int color) {
+        if (text == null || text.isEmpty() || width < 8) {
+            return;
+        }
+        for (net.minecraft.util.FormattedCharSequence line : this.font.split(Component.literal(text), width)) {
+            if (y + this.font.lineHeight > bottom) {
+                break;
+            }
+            graphics.drawString(this.font, line, x, y, color, false);
+            y += this.font.lineHeight;
+        }
+    }
+
+    private int panelBottom() {
+        return this.topPos + this.imageHeight - 4;
     }
 
     @Override

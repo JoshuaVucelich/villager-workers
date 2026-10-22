@@ -135,6 +135,27 @@ class OwnershipTest {
     }
 
     @Test
+    void malformedOriginalOwnerFallsBackToTheCurrentOwner() {
+        String json = "{\"owner\":\"" + primary + "\",\"original_owner\":\"not-a-uuid\",\"job\":\"miner\"}";
+        WorkerData data = WorkerData.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(json)).getOrThrow();
+        assertEquals(primary, data.owner());
+        assertEquals(primary, data.originalOwner());
+        assertEquals(WorkerJob.MINER, data.job());
+        String listed = "{\"owner\":\""
+                + second
+                + "\",\"owners\":[\""
+                + primary
+                + "\",\""
+                + second
+                + "\"],\"original_owner\":\"not-a-uuid\",\"job\":\"lumberjack\"}";
+        WorkerData shared = WorkerData.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(listed)).getOrThrow();
+        assertEquals(List.of(primary, second), shared.allOwners());
+        assertEquals(primary, shared.owner());
+        assertEquals(primary, shared.originalOwner());
+        assertEquals(WorkerJob.LUMBERJACK, shared.job());
+    }
+
+    @Test
     void explicitOriginalOwnerSurvivesSoleTransfer() {
         WorkerData data = WorkerData.hire(primary);
         data.addOwner(second);

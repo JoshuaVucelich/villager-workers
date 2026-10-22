@@ -44,6 +44,8 @@ public final class StructureBuilder {
     private static int warmupLeft;
     private static long nanos;
     private static int samples;
+    private static int peakScanned;
+    private static int peakPlaced;
 
     private static final class Session {
         String key = "";
@@ -85,6 +87,8 @@ public final class StructureBuilder {
         warmupLeft = Math.max(0, warmup);
         nanos = 0L;
         samples = 0;
+        peakScanned = 0;
+        peakPlaced = 0;
     }
 
     public static void stopTiming() {
@@ -93,6 +97,28 @@ public final class StructureBuilder {
 
     public static int timingSamples() {
         return samples;
+    }
+
+    /** Most cells one working tick looked at while timing was on. */
+    public static int peakScanned() {
+        return peakScanned;
+    }
+
+    /** Most blocks one working tick placed while timing was on. */
+    public static int peakPlaced() {
+        return peakPlaced;
+    }
+
+    private static void noteBuildPace(int scanned, int placed) {
+        if (!timing) {
+            return;
+        }
+        if (scanned > peakScanned) {
+            peakScanned = scanned;
+        }
+        if (placed > peakPlaced) {
+            peakPlaced = placed;
+        }
     }
 
     /** Average milliseconds for ten working ticks, from the samples taken so far. */
@@ -177,8 +203,10 @@ public final class StructureBuilder {
                 clearSolved(data);
                 continue;
             }
+            noteBuildPace(scanned, placed);
             return;
         }
+        noteBuildPace(scanned, placed);
         if (session.cursor >= session.cells.size()) {
             session.walkTo = null;
             villager.getNavigation().stop();

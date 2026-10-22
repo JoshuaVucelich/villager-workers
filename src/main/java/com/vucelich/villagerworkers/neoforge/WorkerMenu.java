@@ -110,7 +110,8 @@ public class WorkerMenu extends AbstractContainerMenu {
         }
         WorkerData data = WorkerAttachments.get(target).orElse(null);
         return data != null
-                && WorkerPermissions.allows(data.owner(), data.trustedIds(), player.getUUID(), WorkerAction.OPEN_SCREEN);
+                && WorkerPermissions.allows(
+                        data.owner(), data.coOwnerIds(), data.trustedIds(), player.getUUID(), WorkerAction.OPEN_SCREEN);
     }
 
     @Override

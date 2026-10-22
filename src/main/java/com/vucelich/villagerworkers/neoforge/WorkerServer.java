@@ -354,7 +354,7 @@ public final class WorkerServer {
                     serverPlayer.sendSystemMessage(Component.literal("This worker is not a foreman."));
                 } else {
                     data.setRank(WorkerRank.WORKER);
-                    releaseCrew(serverPlayer, villager);
+                    releaseCrew(villager);
                     WorkerAttachments.applyLook(villager, data);
                     serverPlayer.sendSystemMessage(Component.literal(displayName(villager) + " is a worker again."));
                 }
@@ -681,8 +681,14 @@ public final class WorkerServer {
             return;
         }
         Villager open = openWorker(serverPlayer);
-        WorkerData foremanData = open == null ? null : guarded(serverPlayer, open, WorkerAction.SET_ACTIVITY);
-        if (foremanData == null || !open.getUUID().equals(payload.villagerId()) || foremanData.rank() != WorkerRank.FOREMAN) {
+        if (open == null) {
+            return;
+        }
+        WorkerData foremanData = guarded(serverPlayer, open, WorkerAction.SET_ACTIVITY);
+        if (foremanData == null) {
+            return;
+        }
+        if (!open.getUUID().equals(payload.villagerId()) || foremanData.rank() != WorkerRank.FOREMAN) {
             deny(serverPlayer);
             return;
         }
@@ -721,8 +727,14 @@ public final class WorkerServer {
             return;
         }
         Villager open = openWorker(serverPlayer);
+        if (open == null) {
+            return;
+        }
         Villager subject = subject(serverPlayer, open, payload.villagerId());
-        WorkerData data = subject == null ? null : WorkerAttachments.get(subject).orElse(null);
+        if (subject == null) {
+            return;
+        }
+        WorkerData data = WorkerAttachments.get(subject).orElse(null);
         if (data == null || !allows(data, serverPlayer, WorkerAction.TRANSFER_OWNER)) {
             deny(serverPlayer);
             return;
@@ -902,12 +914,10 @@ public final class WorkerServer {
 
     private static Villager menuVillager(ServerPlayer player, UUID villagerId) {
         if (!(player.containerMenu instanceof WorkerMenu menu) || menu.villager() == null) {
-            deny(player);
             return null;
         }
         Villager villager = menu.villager();
         if (!villager.getUUID().equals(villagerId)) {
-            deny(player);
             return null;
         }
         return villager;
@@ -1072,7 +1082,10 @@ public final class WorkerServer {
     }
 
     private static Villager subject(ServerPlayer player, Villager open, UUID villagerId) {
-        if (open == null || villagerId == null) {
+        if (open == null) {
+            return null;
+        }
+        if (villagerId == null) {
             deny(player);
             return null;
         }
@@ -1121,18 +1134,10 @@ public final class WorkerServer {
         return crew;
     }
 
-    private static void releaseCrew(ServerPlayer player, Villager foreman) {
-        int skipped = 0;
+    /** Demote drops every crew link. A member owned by someone else would otherwise keep a foreman who is gone. */
+    private static void releaseCrew(Villager foreman) {
         for (Villager member : crewOf(foreman)) {
-            WorkerData data = WorkerAttachments.get(member).orElse(null);
-            if (data == null || !allows(data, player, WorkerAction.EDIT_SETUP)) {
-                skipped++;
-                continue;
-            }
-            data.setForeman(null);
-        }
-        if (skipped > 0) {
-            player.sendSystemMessage(Component.literal("Skipped " + skipped + " crew members you cannot control."));
+            WorkerAttachments.get(member).ifPresent(data -> data.setForeman(null));
         }
     }
 
