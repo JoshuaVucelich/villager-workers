@@ -994,6 +994,10 @@ public final class JobRunner {
         FULL
     }
 
+    /**
+     * Drops go into the carry slots first, with no item on the ground.
+     * What does not fit tries the linked chest. Only then is the leftover dropped.
+     */
     private static Deposit putDrops(ServerLevel level, Villager villager, WorkerData data, List<ItemStack> drops) {
         Deposit result = Deposit.OK;
         for (ItemStack drop : drops) {
@@ -1001,9 +1005,12 @@ public final class JobRunner {
                 continue;
             }
             ItemStack left = data.insertCarry(drop.copy());
-            if (!left.isEmpty()) {
-                spawn(villager, left);
-                result = Deposit.FULL;
+            if (left.isEmpty()) {
+                continue;
+            }
+            Deposit stored = store(level, villager, data, chestFor(data, left), left);
+            if (stored != Deposit.OK) {
+                result = stored;
             }
         }
         Deposit flushed = deliverCarry(level, villager, data);

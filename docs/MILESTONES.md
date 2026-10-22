@@ -2,7 +2,7 @@
 
 Issues to file for Villager Workers. Each one lists the title, scope, and acceptance criteria. The behavior they refer to is specified in [DESIGN.md](DESIGN.md).
 
-M1 through M6 are implemented. M5 is crews. M6 is several owners and sole transfer. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
+M1 through M6 are implemented. M5 is crews. M6 is several owners and sole transfer. Broken blocks go into the worker inventory before a chest or the ground. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
 
 Order is M1, then M2, then M3. Later issues may persist fields that an earlier issue defined, but they must not start a later milestone's job AI early.
 
@@ -246,3 +246,7 @@ A worker can be assigned to one of your foremen. The foreman's screen lists unas
 - Come, stay, and work accept foreman only, whole crew, and ticked members. A ticked id that is not on the crew is ignored.
 - One scaffold change on the foreman updates every member who has not opted out, and leaves an opted-out member alone.
 - The link and the rule reload with the world.
+
+## Broken blocks go into the inventory
+
+A break still uses the same safety checks. The items from that break are inserted into the 27 carry slots before anything else. Overflow tries the linked chest for that item. The ground is only used when the inventory and that chest cannot take the stack. A stack that fit in the inventory is still hauled when the chest has room, so a full chest still pauses the job and keeps the drop in the inventory.

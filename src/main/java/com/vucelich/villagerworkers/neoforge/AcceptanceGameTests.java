@@ -810,6 +810,32 @@ public class AcceptanceGameTests {
         });
     }
 
+    @GameTest(template = "platform", timeoutTicks = 200)
+    public static void fullInventoryPutsTheDropInTheChest(GameTestHelper helper) {
+        RecordingPlayer owner = player(helper);
+        Villager villager = villager(helper, 2, 1, 3, "Full");
+        WorkerData data = hire(villager, owner);
+        ServerLevel level = helper.getLevel();
+        BlockPos log = helper.absolutePos(new BlockPos(2, 1, 2));
+        level.setBlockAndUpdate(log, Blocks.OAK_LOG.defaultBlockState());
+        BlockPos logs = barrel(helper, 1, 1, 2);
+        BlockPos tools = barrel(helper, 1, 1, 3, new ItemStack(Items.DIAMOND_AXE));
+        BlockPos saplings = barrel(helper, 1, 1, 4);
+        for (int slot = 0; slot < WorkerData.CARRY_SLOTS; slot++) {
+            data.setCarry(slot, new ItemStack(Items.DIRT, 64));
+        }
+        data.setJob(WorkerJob.LUMBERJACK);
+        data.setActivity(WorkerActivity.WORKING);
+        data.setRested(true);
+        data.setLumberjack(new LumberjackConfig(
+                Optional.of(area(level, log, log)), false, false, Optional.of(logs), Optional.of(saplings), Optional.of(tools)));
+        helper.succeedWhen(() -> {
+            helper.assertTrue(count(level, logs, Items.OAK_LOG) >= 1, "log went to the chest");
+            helper.assertFalse(droppedNear(level, log, Items.OAK_LOG), "log was not dropped");
+            cleanup(owner);
+        });
+    }
+
     @GameTest(template = "platform", timeoutTicks = 40)
     public static void stoppedAndComingDoNotBreak(GameTestHelper helper) {
         RecordingPlayer owner = player(helper);

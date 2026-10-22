@@ -117,7 +117,7 @@ A new miner config starts with these item ids, and the owner can edit the list:
 
 The filter matches dropped items, not the ore block. Ancient debris drops itself, so it is listed as the item. The worker screen offers checkboxes for those drops, the vanilla ores, and any block in the `c:ores` tag. Nothing on that list is typed.
 
-Mined and chopped drops go into the 27 carry slots, then into the linked chest that matches the drop. Whatever does not fit in the chest stays in the carry slots, and a full chest pauses the worker. A full carry drops the overflow on the ground. The tool slot is an axe or a pickaxe and is used before the tool chest. A worn tool is put back in the tool chest, and the tool slot stays free for a usable one. On death, on a lightning or zombie conversion, and when the villager is discarded from a loaded chunk, the carry slots, the tool slot, and the held item are dropped once. The player can put items in and take them out from the menu.
+Mined and chopped drops go into the 27 carry slots first. What does not fit is inserted into the linked chest for that item. Only a leftover that fits in neither place is dropped, and a full chest pauses the worker. A stack that did fit in the inventory is still hauled to that chest when the chest has room. The tool slot is an axe or a pickaxe and is used before the tool chest. A worn tool is put back in the tool chest, and the tool slot stays free for a usable one. On death, on a lightning or zombie conversion, and when the villager is discarded from a loaded chunk, the carry slots, the tool slot, and the held item are dropped once. The player can put items in and take them out from the menu.
 
 ### Work volumes
 
@@ -328,7 +328,7 @@ The predicate allows a break only when all of the following are true:
 
 Whitelist entries exempt only rules 6 and 7. They do not exempt the volume, the reach check, the global denylist, linked chests, ship plots, contraptions, or the owner permission check.
 
-Drops are inserted by item id: valuables list to the valuables chest, everything else to the regular chest. Lumberjack logs go to the log chest, and saplings the worker picks up go to the sapling chest. Nothing is voided. A full or missing chest pauses the job and messages the owner.
+Drops are inserted into the worker inventory first. Nothing is spawned as an item for a stack that fits. What does not fit goes to the linked chest for that item (logs, saplings, valuables, or the regular chest). What still does not fit is dropped at the worker, and a full chest pauses the job. A stack that fit in the inventory is still hauled to that same chest when the chest has room. Nothing is voided.
 
 The worker honors the `doTileDrops` game rule for the block item. When it is off, the block is removed and the block item is not kept, but items that were inside a container still spill on the ground the way vanilla does. When it is on, those contents are hauled with the block drop instead of spilled. A break counts as finished when `destroyBlock` succeeds or the original block is gone, including when a waterlogged block leaves water behind, so that chest's contents are still hauled. A creative-mode owner does not run the creative destroy hook for a shulker box or beehive, so those blocks are not dropped a second time.
 
