@@ -23,6 +23,8 @@ public final class MenuIds {
     public static final int PROMOTE = 70;
     public static final int DEMOTE = 71;
     public static final int SHOW_CREW = 72;
+    public static final int BUILD_NOW = 73;
+    public static final int TAKE_SCHEMATIC = 74;
 
     private MenuIds() {}
 }

@@ -576,7 +576,10 @@ public final class WorkerData {
         job = view.job();
         lumberjack = view.lumberjack();
         miner = view.miner();
-        builder = view.builder();
+        builder = view.builder()
+                .withSchematic(builder.schematicAnchor())
+                .withFile(builder.schematicFile())
+                .withSlice(builder.slice(), builder.slices());
         breakWhitelist.clear();
         breakWhitelist.addAll(view.whitelist());
         rulesPushed = true;

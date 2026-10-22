@@ -49,15 +49,19 @@ public final class SetupSessions {
 
     public static void armMark(ServerPlayer player, Villager villager, WorkerData data) {
         boolean origin = data.job() == WorkerJob.MINER && data.miner().mode() != MinerMode.CLEAR_BOX;
+        boolean anchor = data.job() == WorkerJob.BUILDER;
         boolean area = data.job() == WorkerJob.LUMBERJACK || (data.job() == WorkerJob.MINER && data.miner().mode() == MinerMode.CLEAR_BOX);
-        if (!origin && !area) {
-            player.sendSystemMessage(Component.literal("Pick the lumberjack, or a miner mode, before marking."));
+        if (!origin && !area && !anchor) {
+            player.sendSystemMessage(Component.literal("Pick the lumberjack, a miner mode, or the builder before marking."));
             return;
         }
-        SESSIONS.put(player.getUUID(), new Session(villager.getUUID(), origin, null, null, null, System.currentTimeMillis() + TTL_MS));
-        player.sendSystemMessage(Component.literal(origin
-                ? "Right-click the start block with the area wand."
-                : "Right-click two corners with the area wand."));
+        SESSIONS.put(player.getUUID(), new Session(villager.getUUID(), origin || anchor, null, null, null, System.currentTimeMillis() + TTL_MS));
+        String hint = anchor
+                ? "Right-click the anchor corner with the area wand."
+                : origin
+                        ? "Right-click the start block with the area wand."
+                        : "Right-click two corners with the area wand.";
+        player.sendSystemMessage(Component.literal(hint));
     }
 
     public static void armLink(ServerPlayer player, Villager villager, LinkTarget target) {
@@ -91,9 +95,14 @@ public final class SetupSessions {
         BlockPos pos = context.getClickedPos();
         ResourceLocation dimension = player.level().dimension().location();
         if (session.origin) {
-            data.setMiner(data.miner().withOrigin(Optional.of(new WorkOrigin(dimension, pos, player.getDirection().getName()))));
+            if (data.job() == WorkerJob.BUILDER) {
+                data.setBuilder(data.builder().withSchematic(Optional.of(pos)));
+                player.sendSystemMessage(Component.literal("Anchor saved."));
+            } else {
+                data.setMiner(data.miner().withOrigin(Optional.of(new WorkOrigin(dimension, pos, player.getDirection().getName()))));
+                player.sendSystemMessage(Component.literal("Origin saved."));
+            }
             SESSIONS.remove(player.getUUID());
-            player.sendSystemMessage(Component.literal("Origin saved."));
         } else if (session.firstCorner == null) {
             SESSIONS.put(player.getUUID(), new Session(session.villagerId, false, null, pos, dimension, session.expiresAt));
             player.sendSystemMessage(Component.literal("First corner set. Right-click the opposite corner."));

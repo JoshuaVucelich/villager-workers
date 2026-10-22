@@ -21,6 +21,7 @@ public final class VillagerWorkersMod {
 
     public VillagerWorkersMod(IEventBus modBus, ModContainer container) {
         container.registerConfig(ModConfig.Type.CLIENT, WorkerConfig.CLIENT_SPEC);
+        container.registerConfig(ModConfig.Type.SERVER, WorkerConfig.SERVER_SPEC);
         ModItems.ITEMS.register(modBus);
         ModMenus.MENUS.register(modBus);
         WorkerAttachments.ATTACHMENTS.register(modBus);

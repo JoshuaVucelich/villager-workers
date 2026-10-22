@@ -3,6 +3,7 @@ package com.vucelich.villagerworkers.neoforge;
 import com.vucelich.villagerworkers.common.ActivityRules;
 import com.vucelich.villagerworkers.common.ChatCommands;
 import com.vucelich.villagerworkers.common.MinerMode;
+import com.vucelich.villagerworkers.common.SchematicBuild;
 import com.vucelich.villagerworkers.common.SetupLimits;
 import com.vucelich.villagerworkers.common.StatusText;
 import com.vucelich.villagerworkers.common.TrustedPlayer;
@@ -136,7 +137,7 @@ public final class WorkerServer {
             case COME -> data.comeTo(player.getUUID());
             case STOP -> data.setActivity(ActivityRules.afterStop());
             case RESUME -> {
-                Optional<WorkerActivity> next = ActivityRules.afterResume(data.job(), net.neoforged.fml.ModList.get().isLoaded("create"));
+                Optional<WorkerActivity> next = ActivityRules.afterResume(data.job(), builderEnabled(data));
                 if (next.isEmpty()) {
                     player.sendSystemMessage(Component.literal("Create is required before this worker can build."));
                     return;
@@ -209,7 +210,7 @@ public final class WorkerServer {
         }
         switch (id) {
             case MenuIds.START -> {
-                if (!applyActivity(serverPlayer, data, ActivityRules.afterStart(data.job(), net.neoforged.fml.ModList.get().isLoaded("create")))) {
+                if (!applyActivity(serverPlayer, data, ActivityRules.afterStart(data.job(), builderEnabled(data)))) {
                     return false;
                 }
             }
@@ -230,6 +231,28 @@ public final class WorkerServer {
             case MenuIds.LINK_MINER_TOOL -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.MINER_TOOL);
             case MenuIds.LINK_SCHEMATIC -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.SCHEMATIC);
             case MenuIds.LINK_MATERIAL -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.MATERIAL);
+            case MenuIds.TAKE_SCHEMATIC -> {
+                String file = net.neoforged.fml.ModList.get().isLoaded("create")
+                        ? CreateSchematicPlace.fileName(serverPlayer.getMainHandItem())
+                        : "";
+                if (file.isBlank() || !file.endsWith(".nbt") || file.contains("..") || file.contains("/") || file.contains("\\")) {
+                    serverPlayer.sendSystemMessage(Component.literal("Hold a Create schematic."));
+                    return false;
+                }
+                data.setBuilder(data.builder().withFile(java.util.Optional.of(file)));
+                serverPlayer.sendSystemMessage(Component.literal("Schematic file set to " + file + ". Mark an anchor, then start."));
+            }
+            case MenuIds.BUILD_NOW -> {
+                if (!SchematicBuild.buildNowAllowed(serverPlayer.isCreative(), true)) {
+                    serverPlayer.sendSystemMessage(Component.literal("Build now is creative mode only."));
+                    return false;
+                }
+                if (!(villager.level() instanceof net.minecraft.server.level.ServerLevel level)) {
+                    return false;
+                }
+                int placed = SchematicBuilder.buildNow(level, data);
+                serverPlayer.sendSystemMessage(Component.literal("Placed " + placed + " blocks."));
+            }
             case MenuIds.PROMOTE -> CrewService.promote(serverPlayer, villager, data);
             case MenuIds.DEMOTE -> CrewService.demote(villager, data);
             case MenuIds.SHOW_PERMISSIONS -> {
@@ -515,6 +538,11 @@ public final class WorkerServer {
             return null;
         }
         return data;
+    }
+
+    private static boolean builderEnabled(WorkerData data) {
+        return net.neoforged.fml.ModList.get().isLoaded("create")
+                || data.builder().schematicFile().filter(name -> !name.isBlank()).isPresent();
     }
 
     private static boolean applyActivity(ServerPlayer player, WorkerData data, Optional<WorkerActivity> next) {

@@ -178,6 +178,10 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     private void initBuilder(WorkerView view, int x, int y) {
         addRenderableWidget(button("Link schematic", x, y, 110, MenuIds.LINK_SCHEMATIC));
         addRenderableWidget(button("Link chest", x + 114, y, 80, MenuIds.LINK_MATERIAL));
+        y += 24;
+        addRenderableWidget(button("Held schematic", x, y, 110, MenuIds.TAKE_SCHEMATIC));
+        addRenderableWidget(button("Mark anchor", x + 114, y, 90, MenuIds.MARK));
+        addRenderableWidget(button("Build now", x + 208, y, 60, MenuIds.BUILD_NOW));
     }
 
     private void initPermissions(int x, int y) {

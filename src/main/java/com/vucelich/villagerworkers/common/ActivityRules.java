@@ -4,7 +4,7 @@ import java.util.Optional;
 
 /**
  * How Start, Stop, Come, and Resume change the saved activity.
- * The builder starts only when Create is available. That flag is decided by the loader.
+ * The builder starts when Create is available or the worker already has a schematic file. The caller passes that flag.
  */
 public final class ActivityRules {
     private ActivityRules() {}

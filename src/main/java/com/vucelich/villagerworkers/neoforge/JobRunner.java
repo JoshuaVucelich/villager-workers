@@ -97,7 +97,10 @@ public final class JobRunner {
             return;
         }
         if (data.job() == WorkerJob.BUILDER) {
-            if (ModList.get().isLoaded("create")) {
+            boolean file = data.builder().schematicFile().filter(name -> !name.isBlank()).isPresent();
+            if (file) {
+                SchematicBuilder.tick(villager, data);
+            } else if (ModList.get().isLoaded("create")) {
                 CreateBuilder.tick(villager, data);
             } else if (data.activity() == WorkerActivity.WORKING) {
                 data.setActivity(WorkerActivity.STOPPED);

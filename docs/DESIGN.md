@@ -285,6 +285,8 @@ The predicate allows a break only when all of the following are true:
 
 Whitelist entries exempt only rules 6 and 7. They do not exempt the volume, the reach check, the global denylist, linked chests, or the owner permission check.
 
+A builder with a schematic file places that gzipped structure from the anchor, bottom layer first inside each numbered part, and numbered parts in order. Materials come from Create's ItemRequirement when Create is installed, and from the block id otherwise. Blocks are pulled from the villager inventory and then the material chests. Missing materials are reported to the owners. Build now places every block at once, and only for a creative player who can edit the worker. The pace is `schematicBlocksPerAction` (default 1) and runs only while that worker is building. Aeronautics ships are left as plain blocks for the player to assemble.
+
 Drops from a break go into the villager inventory first. The break uses destroyBlock with item drops disabled, so the break itself spawns no item entities. Anything that does not fit goes to the assigned chest: valuables to the valuables chest, other miner drops to the regular chest, lumberjack logs to the log chest, and saplings to the sapling chest. If that chest is missing or full, the rest is dropped as item entities and the owner is told. The job keeps working.
 
 Tools come from the tool chest: an axe for the lumberjack, a pickaxe for the miner. The worker equips one, and vanilla durability applies. At 1 remaining durability the worker stops, returns the tool if it can, and messages the owner. On death the equipped tool drops with the villager. On stop or idle the tool is put back in the tool chest when that chest has room.

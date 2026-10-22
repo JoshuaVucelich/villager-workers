@@ -2,6 +2,7 @@ package com.vucelich.villagerworkers.neoforge;
 
 import com.vucelich.villagerworkers.common.CrewCommands;
 import com.vucelich.villagerworkers.common.CrewRules;
+import com.vucelich.villagerworkers.common.SchematicBuild;
 import com.vucelich.villagerworkers.common.SetupLimits;
 import com.vucelich.villagerworkers.common.TrustedPlayer;
 import com.vucelich.villagerworkers.common.WorkerAction;
@@ -167,7 +168,7 @@ public final class CrewService {
         CrewCommands.Order order = CrewCommands.Order.byId(orderId);
         boolean create = ModList.get().isLoaded("create");
         List<UUID> selected = CrewCommands.select(foreman.getUUID(), foremanData.crewMembers(), target, ticked);
-        int changed = 0;
+        List<WorkerData> crew = new ArrayList<>();
         for (UUID id : selected) {
             Villager member = id.equals(foreman.getUUID()) ? foreman : loaded(player, id);
             WorkerData data = member == null ? null : WorkerAttachments.get(member).orElse(null);
@@ -177,9 +178,16 @@ public final class CrewService {
             if (order.name().startsWith("JOB") && !WorkerServer.allows(data, player, WorkerAction.EDIT_SETUP)) {
                 continue;
             }
-            CrewCommands.apply(data, order, player.getUUID(), create);
-            changed++;
+            crew.add(data);
         }
+        if (order == CrewCommands.Order.WORK) {
+            SchematicBuild.share(foremanData, crew);
+        }
+        for (WorkerData data : crew) {
+            boolean builder = create || data.builder().schematicFile().filter(name -> !name.isBlank()).isPresent();
+            CrewCommands.apply(data, order, player.getUUID(), builder);
+        }
+        int changed = crew.size();
         player.sendSystemMessage(Component.literal("Applied " + order.name().toLowerCase(java.util.Locale.ROOT) + " to " + changed + " worker" + (changed == 1 ? "" : "s") + "."));
         send(player, foreman, foremanData);
     }

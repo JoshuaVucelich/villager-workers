@@ -95,7 +95,7 @@ public record WorkerView(
                 pos(miner.regularChest()),
                 pos(miner.toolChest()),
                 data.breakWhitelist().stream().map(id -> id.toString()).collect(Collectors.joining(", ")),
-                pos(builder.schematicAnchor()),
+                builder.schematicFile().orElse("none") + " @ " + pos(builder.schematicAnchor()),
                 builder.materialChests().isEmpty()
                         ? "none"
                         : builder.materialChests().stream().map(WorkerView::pos).collect(Collectors.joining(", ")),
