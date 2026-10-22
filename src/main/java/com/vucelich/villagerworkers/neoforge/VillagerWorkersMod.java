@@ -2,6 +2,8 @@ package com.vucelich.villagerworkers.neoforge;
 
 import com.mojang.logging.LogUtils;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -66,13 +68,8 @@ public final class VillagerWorkersMod {
     /** Dedicated server and client both log this so a release jar can be checked after boot. */
     private static void logJarSha() {
         try {
-            var source = VillagerWorkersMod.class.getProtectionDomain().getCodeSource();
-            if (source == null || source.getLocation() == null) {
-                LOGGER.info("Villager Workers jar sha256: unavailable");
-                return;
-            }
-            Path path = Path.of(source.getLocation().toURI());
-            if (!Files.isRegularFile(path)) {
+            Path path = modJar();
+            if (path == null || !Files.isRegularFile(path)) {
                 LOGGER.info("Villager Workers jar sha256: unavailable");
                 return;
             }
@@ -88,6 +85,61 @@ public final class VillagerWorkersMod {
         } catch (Exception ex) {
             LOGGER.info("Villager Workers jar sha256: unavailable");
         }
+    }
+
+    /**
+     * Dev runs load from a classes directory. A dedicated server loads the mod through a union URL
+     * such as union:/mods/example.jar%2312!/ so the plain file URI is not enough.
+     */
+    private static Path modJar() {
+        var domain = VillagerWorkersMod.class.getProtectionDomain();
+        if (domain == null || domain.getCodeSource() == null) {
+            return null;
+        }
+        URL url = domain.getCodeSource().getLocation();
+        if (url == null) {
+            return null;
+        }
+        try {
+            Path direct = Path.of(url.toURI());
+            if (Files.isRegularFile(direct)) {
+                return direct;
+            }
+        } catch (Exception ignored) {
+            // The loader URL is not a file URI. The text form is parsed below.
+        }
+        String text = url.toString();
+        int bang = text.indexOf('!');
+        if (bang >= 0) {
+            text = text.substring(0, bang);
+        }
+        int marker = text.indexOf("%23");
+        if (marker >= 0) {
+            text = text.substring(0, marker);
+        }
+        marker = text.indexOf('#');
+        if (marker >= 0) {
+            text = text.substring(0, marker);
+        }
+        if (text.startsWith("union:")) {
+            text = text.substring("union:".length());
+        }
+        if (text.startsWith("jar:")) {
+            text = text.substring("jar:".length());
+        }
+        try {
+            if (text.startsWith("file:")) {
+                Path path = Path.of(URI.create(text));
+                return Files.isRegularFile(path) ? path : null;
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        if (text.startsWith("/")) {
+            Path path = Path.of(text);
+            return Files.isRegularFile(path) ? path : null;
+        }
+        return null;
     }
 
     private static void addWandToTools(BuildCreativeModeTabContentsEvent event) {
