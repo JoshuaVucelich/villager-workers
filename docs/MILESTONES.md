@@ -2,7 +2,7 @@
 
 Issues to file for Villager Workers. Each one lists the title, scope, and acceptance criteria. The behavior they refer to is specified in [DESIGN.md](DESIGN.md).
 
-M1 through M5 are implemented. M5 is crews. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
+M1 through M6 are implemented. M5 is crews. M6 is several owners and sole transfer. Trusted players can operate a worker, but breaking, placing, and opening a linked container use the owner's claim and lock rights. See Ownership in [DESIGN.md](DESIGN.md).
 
 Order is M1, then M2, then M3. Later issues may persist fields that an earlier issue defined, but they must not start a later milestone's job AI early.
 

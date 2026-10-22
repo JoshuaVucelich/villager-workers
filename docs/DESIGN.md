@@ -154,7 +154,9 @@ The speed change is applied only by job code (M2), not by M1:
 
 The owner is the hiring player. Trusted players are UUIDs the owner adds. A trusted player must be online at the moment they are added; the server resolves the typed name to a UUID and stores the UUID. Removing a trusted player does not require them to be online.
 
-Only the current owner can add or remove trusted players, and only the current owner can transfer ownership. Transfer requires the new owner to be online in the same dimension. The previous owner loses owner rights immediately and is not added to the trusted set.
+A worker has one primary owner and up to 7 more owners, 8 in total. Every owner can do what the primary owner can do, including the trusted list and sole transfer. Hiring starts with one owner. Adding an owner who was trusted removes them from the trusted set. Trusted players still cannot change owners.
+
+Sole transfer leaves exactly one owner. The previous owners are not added to the trusted set. Transfer requires the new owner to be online in the same dimension. A save that only has the legacy `owner` field reloads as that one owner. A save with an `owners` list reloads those UUIDs, primary first.
 
 | Action | Owner | Trusted | Anyone else |
 | --- | --- | --- | --- |

@@ -10,10 +10,21 @@ public final class WorkerPermissions {
     private WorkerPermissions() {}
 
     public static WorkerRole role(UUID owner, Set<UUID> trusted, UUID actor) {
+        return role(owner, Set.of(), trusted, actor);
+    }
+
+    /** Co-owners have the same role as the primary owner. Trusted players do not. */
+    public static WorkerRole role(UUID owner, Set<UUID> coOwners, Set<UUID> trusted, UUID actor) {
+        if (actor == null) {
+            return WorkerRole.NONE;
+        }
         if (owner != null && owner.equals(actor)) {
             return WorkerRole.OWNER;
         }
-        if (trusted != null && actor != null && trusted.contains(actor)) {
+        if (coOwners != null && coOwners.contains(actor)) {
+            return WorkerRole.OWNER;
+        }
+        if (trusted != null && trusted.contains(actor)) {
             return WorkerRole.TRUSTED;
         }
         return WorkerRole.NONE;
@@ -31,5 +42,9 @@ public final class WorkerPermissions {
 
     public static boolean allows(UUID owner, Set<UUID> trusted, UUID actor, WorkerAction action) {
         return allows(role(owner, trusted, actor), action);
+    }
+
+    public static boolean allows(UUID owner, Set<UUID> coOwners, Set<UUID> trusted, UUID actor, WorkerAction action) {
+        return allows(role(owner, coOwners, trusted, actor), action);
     }
 }

@@ -1,6 +1,11 @@
 package com.vucelich.villagerworkers.neoforge;
 
 import com.mojang.logging.LogUtils;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import com.vucelich.villagerworkers.common.VillagerWorkers;
 import com.vucelich.villagerworkers.common.WorkerData;
 import com.vucelich.villagerworkers.neoforge.client.ClientModEvents;
@@ -45,6 +50,34 @@ public final class VillagerWorkersMod {
         NeoForge.EVENT_BUS.addListener(AssemblyGuards::onServerStopped);
         NeoForge.EVENT_BUS.addListener(WorkerHold::onServerStopped);
         LOGGER.info("Villager Workers ({}) loaded", VillagerWorkers.MOD_ID);
+        logJarSha();
+    }
+
+    /** Dedicated server and client both log this so a release jar can be checked after boot. */
+    private static void logJarSha() {
+        try {
+            var source = VillagerWorkersMod.class.getProtectionDomain().getCodeSource();
+            if (source == null || source.getLocation() == null) {
+                LOGGER.info("Villager Workers jar sha256: unavailable");
+                return;
+            }
+            Path path = Path.of(source.getLocation().toURI());
+            if (!Files.isRegularFile(path)) {
+                LOGGER.info("Villager Workers jar sha256: unavailable");
+                return;
+            }
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = Files.newInputStream(path)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = in.read(buffer)) >= 0) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            LOGGER.info("Villager Workers jar sha256: {}", HexFormat.of().formatHex(digest.digest()));
+        } catch (Exception ex) {
+            LOGGER.info("Villager Workers jar sha256: unavailable");
+        }
     }
 
     private static void addWandToTools(BuildCreativeModeTabContentsEvent event) {

@@ -42,6 +42,8 @@ public final class ModPayloads {
                 WorkerServer.crewCommand(context.player(), payload));
         registrar.playToServer(GiveWorkerPayload.TYPE, GiveWorkerPayload.STREAM_CODEC, (payload, context) ->
                 WorkerServer.giveWorker(context.player(), payload));
+        registrar.playToServer(AddOwnerPayload.TYPE, AddOwnerPayload.STREAM_CODEC, (payload, context) ->
+                WorkerServer.addOwner(context.player(), payload));
         if (FMLEnvironment.dist == Dist.CLIENT) {
             ClientPayloadHandlers.register(registrar);
         } else {
@@ -226,14 +228,15 @@ public final class ModPayloads {
         }
     }
 
-    public record PermissionsView(String ownerName, List<Person> trusted, List<Person> online) {
+    public record PermissionsView(String ownerName, List<Person> trusted, List<Person> online, List<Person> owners) {
         public static final StreamCodec<RegistryFriendlyByteBuf, PermissionsView> STREAM_CODEC = StreamCodec.of(
                 (buf, view) -> {
                     buf.writeUtf(view.ownerName);
                     writePeople(buf, view.trusted);
                     writePeople(buf, view.online);
+                    writePeople(buf, view.owners);
                 },
-                buf -> new PermissionsView(buf.readUtf(), readPeople(buf), readPeople(buf)));
+                buf -> new PermissionsView(buf.readUtf(), readPeople(buf), readPeople(buf), readPeople(buf)));
 
         private static void writePeople(RegistryFriendlyByteBuf buf, List<Person> people) {
             buf.writeVarInt(people.size());
@@ -279,6 +282,19 @@ public final class ModPayloads {
                 ByteBufCodecs.STRING_UTF8, CrewCommandPayload::scope,
                 net.minecraft.core.UUIDUtil.STREAM_CODEC.apply(ByteBufCodecs.list()), CrewCommandPayload::picked,
                 CrewCommandPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record AddOwnerPayload(UUID villagerId, String playerName) implements CustomPacketPayload {
+        public static final Type<AddOwnerPayload> TYPE = ModPayloads.payloadType("add_owner");
+        public static final StreamCodec<RegistryFriendlyByteBuf, AddOwnerPayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, AddOwnerPayload::villagerId,
+                ByteBufCodecs.STRING_UTF8, AddOwnerPayload::playerName,
+                AddOwnerPayload::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

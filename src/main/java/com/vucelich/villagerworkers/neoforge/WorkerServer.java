@@ -20,6 +20,7 @@ import com.vucelich.villagerworkers.neoforge.ModPayloads.AddTrustedPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.PermissionsView;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.Person;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.RemoveTrustedPayload;
+import com.vucelich.villagerworkers.neoforge.ModPayloads.AddOwnerPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.AssignForemanPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.CrewCommandPayload;
 import com.vucelich.villagerworkers.neoforge.ModPayloads.GiveWorkerPayload;
@@ -522,8 +523,8 @@ public final class WorkerServer {
             serverPlayer.sendSystemMessage(Component.literal("That player is not online."));
             return;
         }
-        if (match.getUUID().equals(data.owner())) {
-            serverPlayer.sendSystemMessage(Component.literal("You already own this worker."));
+        if (data.isOwner(match.getUUID())) {
+            serverPlayer.sendSystemMessage(Component.literal("That player already owns this worker."));
             return;
         }
         if (!data.addTrusted(new TrustedPlayer(match.getUUID(), match.getGameProfile().getName()))) {
@@ -531,6 +532,38 @@ public final class WorkerServer {
             return;
         }
         serverPlayer.sendSystemMessage(Component.literal(match.getGameProfile().getName() + " can control this worker."));
+        sendPermissions(serverPlayer, villager, data);
+    }
+
+    public static void addOwner(Player player, AddOwnerPayload payload) {
+        if (!(player instanceof ServerPlayer serverPlayer) || payload == null) {
+            return;
+        }
+        Villager villager = menuVillager(serverPlayer, payload.villagerId());
+        WorkerData data = guarded(serverPlayer, villager, WorkerAction.EDIT_TRUSTED);
+        if (data == null) {
+            return;
+        }
+        int before = data.ownerCount();
+        ServerPlayer match = null;
+        for (ServerPlayer online : serverPlayer.server.getPlayerList().getPlayers()) {
+            if (online.getGameProfile().getName().equalsIgnoreCase(payload.playerName().trim())) {
+                match = online;
+                break;
+            }
+        }
+        if (match == null) {
+            serverPlayer.sendSystemMessage(Component.literal("That player is not online."));
+            return;
+        }
+        if (!data.addOwner(match.getUUID())) {
+            serverPlayer.sendSystemMessage(Component.literal("That player already owns this worker, or the owner list is full."));
+            return;
+        }
+        serverPlayer.sendSystemMessage(Component.literal(match.getGameProfile().getName() + " is now an owner (" + data.ownerCount() + ")."));
+        if (data.ownerCount() == before) {
+            return;
+        }
         sendPermissions(serverPlayer, villager, data);
     }
 
@@ -657,8 +690,7 @@ public final class WorkerServer {
             serverPlayer.sendSystemMessage(Component.literal("That player already owns this worker."));
             return;
         }
-        data.removeTrusted(target.getUUID());
-        data.setOwner(target.getUUID());
+        data.transferSoleTo(target.getUUID());
         String workerName = displayName(subject);
         serverPlayer.sendSystemMessage(Component.literal("Ownership of " + workerName + " was transferred."));
         target.sendSystemMessage(Component.literal(workerName + " is now your worker."));
@@ -730,12 +762,11 @@ public final class WorkerServer {
             serverPlayer.sendSystemMessage(Component.literal("That player must be in the same dimension."));
             return;
         }
-        if (target.getUUID().equals(data.owner())) {
-            serverPlayer.sendSystemMessage(Component.literal("You already own this worker."));
+        if (data.isOwner(target.getUUID()) && data.ownerCount() == 1) {
+            serverPlayer.sendSystemMessage(Component.literal("That player already owns this worker."));
             return;
         }
-        data.removeTrusted(target.getUUID());
-        data.setOwner(target.getUUID());
+        data.transferSoleTo(target.getUUID());
         String workerName = displayName(villager);
         serverPlayer.sendSystemMessage(Component.literal("Ownership of " + workerName + " was transferred."));
         target.sendSystemMessage(Component.literal(workerName + " is now your worker."));
@@ -743,7 +774,7 @@ public final class WorkerServer {
     }
 
     public static boolean allows(WorkerData data, ServerPlayer player, WorkerAction action) {
-        return WorkerPermissions.allows(data.owner(), data.trustedIds(), player.getUUID(), action);
+        return WorkerPermissions.allows(data.owner(), data.coOwnerIds(), data.trustedIds(), player.getUUID(), action);
     }
 
     public static Villager findWorker(ServerPlayer player, UUID villagerId) {
@@ -854,8 +885,12 @@ public final class WorkerServer {
                 online.add(new Person(other.getUUID(), other.getGameProfile().getName()));
             }
         }
+        List<Person> owners = new ArrayList<>();
+        for (UUID id : data.allOwners()) {
+            owners.add(new Person(id, ownerName(player, id)));
+        }
         PacketDistributor.sendToPlayer(player, new ModPayloads.PermissionsSnapshotPayload(
-                new PermissionsView(ownerName(player, data.owner()), trusted, online)));
+                new PermissionsView(ownerName(player, data.owner()), trusted, online, owners)));
     }
 
     private static String ownerName(ServerPlayer player, UUID owner) {

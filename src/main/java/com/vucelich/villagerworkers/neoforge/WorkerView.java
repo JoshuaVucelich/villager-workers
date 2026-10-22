@@ -80,7 +80,7 @@ public record WorkerView(
                 data.activity().id(),
                 data.rested(),
                 StatusText.problem(hungry, hurt, data.problem()),
-                data.owner().equals(viewer.getUUID()),
+                data.isOwner(viewer.getUUID()),
                 ModList.get().isLoaded("create"),
                 area,
                 lumber.clearLeaves(),

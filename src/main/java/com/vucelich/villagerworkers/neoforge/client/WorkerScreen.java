@@ -406,13 +406,18 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
             }
             addRenderableWidget(Button.builder(Component.literal("Trust " + person.name()), ignored ->
                             PacketDistributor.sendToServer(new ModPayloads.AddTrustedPayload(view.villagerId(), person.name())))
-                    .bounds(x, y, 130, 16)
+                    .bounds(x, y, 100, 16)
                     .tooltip(Tooltip.create(Component.literal(person.name() + " may use this worker.")))
                     .build());
-            addRenderableWidget(Button.builder(Component.literal("Give"), ignored ->
+            addRenderableWidget(Button.builder(Component.literal("Owner"), ignored ->
+                            PacketDistributor.sendToServer(new ModPayloads.AddOwnerPayload(view.villagerId(), person.name())))
+                    .bounds(x + 102, y, 52, 16)
+                    .tooltip(Tooltip.create(Component.literal("Add " + person.name() + " as an owner. Owners can all control this worker.")))
+                    .build());
+            addRenderableWidget(Button.builder(Component.literal("Sole"), ignored ->
                             PacketDistributor.sendToServer(new ModPayloads.TransferOwnerPayload(view.villagerId(), person.id())))
-                    .bounds(x + 134, y, 50, 16)
-                    .tooltip(Tooltip.create(Component.literal("Make " + person.name() + " the owner. You give the worker up.")))
+                    .bounds(x + 156, y, 44, 16)
+                    .tooltip(Tooltip.create(Component.literal("Transfer sole ownership to " + person.name() + ". Other owners are removed.")))
                     .build());
             y += 18;
             shown++;

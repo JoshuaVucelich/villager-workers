@@ -87,7 +87,11 @@ public final class WorkerData {
         }
     };
 
-    public static final Codec<WorkerData> CODEC = RecordCodecBuilder.create(instance -> instance.group(
+    /**
+     * Saved body. Extra owners are a top-level {@code owners} list added by {@link #CODEC}, so this record stays
+     * within Mojang's 16-field limit and a 0.4.9 save that only has {@code owner} still loads.
+     */
+    private static final Codec<WorkerData> STORED = RecordCodecBuilder.create(instance -> instance.group(
             UUIDUtil.STRING_CODEC.fieldOf("owner").forGetter(WorkerData::owner),
             TrustedPlayer.CODEC.listOf().optionalFieldOf("trusted", List.of()).forGetter(WorkerData::trusted),
             Codec.STRING.xmap(WorkerJob::byId, WorkerJob::id).optionalFieldOf("job", WorkerJob.NONE).forGetter(WorkerData::job),
@@ -106,9 +110,44 @@ public final class WorkerData {
             CARRY_FIELD.forGetter(WorkerData::carryForCodec)
     ).apply(instance, WorkerData::fromCodec));
 
-    // Mojang's record codec accepts at most 16 fields. Rank lives inside alerts so older saves still load.
+    public static final Codec<WorkerData> CODEC = new Codec<>() {
+        @Override
+        public <T> DataResult<com.mojang.datafixers.util.Pair<WorkerData, T>> decode(DynamicOps<T> ops, T input) {
+            return STORED.decode(ops, input).flatMap(pair -> {
+                WorkerData data = pair.getFirst();
+                DataResult<List<UUID>> owners = ops.getMap(input).flatMap(map -> {
+                    T raw = map.get("owners");
+                    if (raw == null) {
+                        return DataResult.success(List.of());
+                    }
+                    return UUIDUtil.STRING_CODEC.listOf().parse(ops, raw);
+                });
+                if (owners.error().isPresent()) {
+                    return DataResult.error(() -> owners.error().get().message());
+                }
+                data.setOwners(owners.result().orElse(List.of()));
+                return DataResult.success(pair);
+            });
+        }
+
+        @Override
+        public <T> DataResult<T> encode(WorkerData input, DynamicOps<T> ops, T prefix) {
+            return STORED.encode(input, ops, prefix).flatMap(encoded -> {
+                List<UUID> owners = input.allOwners();
+                if (owners.size() <= 1) {
+                    return DataResult.success(encoded);
+                }
+                DataResult<T> list = UUIDUtil.STRING_CODEC.listOf().encodeStart(ops, owners);
+                return list.flatMap(value -> ops.mergeToMap(encoded, ops.createString("owners"), value));
+            });
+        }
+    };
+
+    // Mojang's record codec accepts at most 16 fields. Rank, crew, and the extra owner list live beside it.
 
     private UUID owner;
+    /** Owners besides {@link #owner}. The full set is capped at {@link SetupLimits#MAX_OWNERS}. */
+    private final List<UUID> coOwners = new ArrayList<>();
     private final List<TrustedPlayer> trusted = new ArrayList<>();
     private WorkerJob job = WorkerJob.NONE;
     private WorkerActivity activity = WorkerActivity.IDLE;
@@ -406,6 +445,83 @@ public final class WorkerData {
 
     public void setOwner(UUID owner) {
         this.owner = owner;
+    }
+
+    public boolean isOwner(UUID id) {
+        return id != null && (id.equals(owner) || coOwners.contains(id));
+    }
+
+    public List<UUID> coOwners() {
+        return List.copyOf(coOwners);
+    }
+
+    public Set<UUID> coOwnerIds() {
+        return new LinkedHashSet<>(coOwners);
+    }
+
+    /** Primary owner first, then co-owners. At most {@link SetupLimits#MAX_OWNERS}. */
+    public List<UUID> allOwners() {
+        List<UUID> ids = new ArrayList<>();
+        if (owner != null) {
+            ids.add(owner);
+        }
+        for (UUID id : coOwners) {
+            if (id != null && !ids.contains(id) && ids.size() < SetupLimits.MAX_OWNERS) {
+                ids.add(id);
+            }
+        }
+        return List.copyOf(ids);
+    }
+
+    public int ownerCount() {
+        return allOwners().size();
+    }
+
+    /**
+     * Replaces the owner set. The first id is the primary owner. Empty means "leave the current primary",
+     * which is how a legacy save with only {@code owner} reloads.
+     */
+    public void setOwners(List<UUID> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        List<UUID> unique = new ArrayList<>();
+        for (UUID id : ids) {
+            if (id != null && !unique.contains(id) && unique.size() < SetupLimits.MAX_OWNERS) {
+                unique.add(id);
+            }
+        }
+        if (unique.isEmpty()) {
+            return;
+        }
+        this.owner = unique.get(0);
+        coOwners.clear();
+        for (int i = 1; i < unique.size(); i++) {
+            coOwners.add(unique.get(i));
+        }
+        for (UUID id : unique) {
+            removeTrusted(id);
+        }
+    }
+
+    /** Adds an owner. A trusted player with this id is removed from the trusted set. */
+    public boolean addOwner(UUID id) {
+        if (id == null || isOwner(id) || ownerCount() >= SetupLimits.MAX_OWNERS) {
+            return false;
+        }
+        removeTrusted(id);
+        coOwners.add(id);
+        return true;
+    }
+
+    /** One owner remains. Previous owners are not added to the trusted set. */
+    public void transferSoleTo(UUID newOwner) {
+        if (newOwner == null) {
+            return;
+        }
+        removeTrusted(newOwner);
+        this.owner = newOwner;
+        coOwners.clear();
     }
 
     public List<TrustedPlayer> trusted() {
