@@ -970,10 +970,7 @@ public final class JobRunner {
     }
 
     private static ServerPlayer owner(Villager villager, WorkerData data) {
-        if (villager.getServer() == null) {
-            return null;
-        }
-        return villager.getServer().getPlayerList().getPlayer(data.owner());
+        return OnlineOwners.first(villager, data);
     }
 
     private static String signature(WorkerData data) {

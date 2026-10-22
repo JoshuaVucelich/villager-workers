@@ -26,19 +26,21 @@ public final class OwnerNotices {
         if (code != ProblemCode.HUNGRY && code != ProblemCode.HURT) {
             data.setProblem(new WorkerProblem(code, text));
         }
-        ServerPlayer owner = owner(villager, data);
-        if (owner != null && (due || pending)) {
+        java.util.List<ServerPlayer> owners = OnlineOwners.all(villager, data);
+        if (!owners.isEmpty() && (due || pending)) {
             String name = villager.getCustomName() == null ? villager.getName().getString() : villager.getCustomName().getString();
-            owner.sendSystemMessage(Component.literal(StatusText.ownerAlert(name, code, text)));
+            Component line = Component.literal(StatusText.ownerAlert(name, code, text));
+            for (ServerPlayer owner : owners) {
+                owner.sendSystemMessage(line);
+            }
             data.putNotice(new WorkNotice(code.id(), now, false, text));
-        } else if (owner == null && due && !pending) {
+        } else if (owners.isEmpty() && due && !pending) {
             data.putNotice(new WorkNotice(code.id(), last, true, text));
         }
     }
 
     public static void flushPending(Villager villager, WorkerData data) {
-        ServerPlayer owner = owner(villager, data);
-        if (owner == null) {
+        if (OnlineOwners.all(villager, data).isEmpty()) {
             return;
         }
         for (WorkNotice notice : data.notices()) {
@@ -53,10 +55,4 @@ public final class OwnerNotices {
         }
     }
 
-    private static ServerPlayer owner(Villager villager, WorkerData data) {
-        if (villager.getServer() == null) {
-            return null;
-        }
-        return villager.getServer().getPlayerList().getPlayer(data.owner());
-    }
 }

@@ -30,12 +30,13 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     private EditBox valuablesBox;
     private EditBox whitelistBox;
     private EditBox trustedBox;
+    private EditBox ownerBox;
     private EditBox transferBox;
 
     public WorkerScreen(WorkerMenu menu, Inventory inventory, Component title) {
         super(menu, inventory, title);
         this.imageWidth = 284;
-        this.imageHeight = 236;
+        this.imageHeight = 268;
         this.inventoryLabelY = 10000;
     }
 
@@ -150,35 +151,55 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     }
 
     private void initPermissions(int x, int y) {
-        trustedBox = box(x, y, 140, "");
-        trustedBox.setHint(Component.literal("Online player"));
+        if (permissionsView != null && permissionsView.owners().size() > 1) {
+            int shown = 0;
+            for (ModPayloads.Person person : permissionsView.owners()) {
+                if (shown >= 3) {
+                    break;
+                }
+                UUID id = person.id();
+                addRenderableWidget(Button.builder(Component.literal("Remove owner " + person.name()), button ->
+                                PacketDistributor.sendToServer(new ModPayloads.RemoveOwnerPayload(menu.view().villagerId(), id)))
+                        .bounds(x, y, 200, 20)
+                        .build());
+                y += 22;
+                shown++;
+            }
+        }
+        ownerBox = box(x, y, 120, "");
+        ownerBox.setHint(Component.literal("Add owner"));
+        addRenderableWidget(ownerBox);
+        addRenderableWidget(Button.builder(Component.literal("Add owner"), button -> sendOwner())
+                .bounds(x + 124, y, 80, 20)
+                .build());
+        y += 24;
+        trustedBox = box(x, y, 120, "");
+        trustedBox.setHint(Component.literal("Trusted player"));
         addRenderableWidget(trustedBox);
-        addRenderableWidget(Button.builder(Component.literal("Add"), button -> sendTrusted())
-                .bounds(x + 144, y, 50, 20)
+        addRenderableWidget(Button.builder(Component.literal("Add trusted"), button -> sendTrusted())
+                .bounds(x + 124, y, 90, 20)
                 .build());
         y += 24;
         if (permissionsView != null) {
-            int row = y;
             int shown = 0;
             for (ModPayloads.Person person : permissionsView.trusted()) {
-                if (shown >= 4) {
+                if (shown >= 2) {
                     break;
                 }
                 UUID id = person.id();
                 addRenderableWidget(Button.builder(Component.literal("Remove " + person.name()), button ->
                                 PacketDistributor.sendToServer(new ModPayloads.RemoveTrustedPayload(menu.view().villagerId(), id)))
-                        .bounds(x, row, 180, 20)
+                        .bounds(x, y, 180, 20)
                         .build());
-                row += 22;
+                y += 22;
                 shown++;
             }
-            y = row;
         }
-        transferBox = box(x, y, 140, "");
-        transferBox.setHint(Component.literal("New owner"));
+        transferBox = box(x, y, 120, "");
+        transferBox.setHint(Component.literal("Sole owner"));
         addRenderableWidget(transferBox);
-        addRenderableWidget(Button.builder(Component.literal("Make owner"), button -> transfer())
-                .bounds(x + 144, y, 90, 20)
+        addRenderableWidget(Button.builder(Component.literal("Sole owner"), button -> transfer())
+                .bounds(x + 124, y, 90, 20)
                 .build());
     }
 
@@ -204,6 +225,13 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         if (whitelistBox != null) {
             PacketDistributor.sendToServer(new ModPayloads.UpdateWhitelistPayload(view.villagerId(), splitIds(whitelistBox.getValue())));
         }
+    }
+
+    private void sendOwner() {
+        if (ownerBox == null || ownerBox.getValue().isBlank()) {
+            return;
+        }
+        PacketDistributor.sendToServer(new ModPayloads.AddOwnerPayload(menu.view().villagerId(), ownerBox.getValue().trim()));
     }
 
     private void sendTrusted() {
@@ -299,7 +327,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         graphics.drawString(this.font, "Job " + view.job() + "  " + view.problem(), 8, 30, 0xDDDDDD, false);
         if (permissions && view.viewerIsOwner()) {
             String owner = permissionsView == null ? "..." : permissionsView.ownerName();
-            graphics.drawString(this.font, "Owner: " + owner, 8, 46, 0xFFD27A, false);
+            graphics.drawString(this.font, "Owners: " + owner, 8, 46, 0xFFD27A, false);
             return;
         }
         graphics.drawString(this.font, detail(view), 8, 46, 0xC8BBA8, false);

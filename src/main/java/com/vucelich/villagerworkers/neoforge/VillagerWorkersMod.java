@@ -7,6 +7,7 @@ import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
@@ -25,12 +26,17 @@ public final class VillagerWorkersMod {
         if (FMLEnvironment.dist == Dist.CLIENT) {
             modBus.addListener(ClientModEvents::registerScreens);
         }
+        modBus.addListener(VillagerWorkersMod::logJar);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onEntityInteract);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onRightClickBlock);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onTick);
         NeoForge.EVENT_BUS.addListener(WorkerServer::onChat);
         NeoForge.EVENT_BUS.addListener(JobRunner::onDeath);
         LOGGER.info("Villager Workers ({}) loaded", VillagerWorkers.MOD_ID);
+    }
+
+    private static void logJar(FMLCommonSetupEvent event) {
+        LOGGER.info("Villager Workers jar sha256: {}", JarIdentity.sha256());
     }
 
     private static void addWandToTools(BuildCreativeModeTabContentsEvent event) {

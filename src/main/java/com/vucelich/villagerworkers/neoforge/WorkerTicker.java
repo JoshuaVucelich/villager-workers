@@ -113,14 +113,17 @@ public final class WorkerTicker {
         long last = notifiedAt(data, code);
         boolean due = last == Long.MIN_VALUE || now - last >= PROBLEM_COOLDOWN;
         boolean pending = pending(data, code);
-        ServerPlayer owner = owner(villager, data);
-        if (owner != null && (due || pending)) {
+        java.util.List<ServerPlayer> owners = OnlineOwners.all(villager, data);
+        if (!owners.isEmpty() && (due || pending)) {
             String name = villager.getCustomName() == null ? villager.getName().getString() : villager.getCustomName().getString();
-            owner.sendSystemMessage(Component.literal(StatusText.ownerAlert(name, code)));
+            Component line = Component.literal(StatusText.ownerAlert(name, code));
+            for (ServerPlayer owner : owners) {
+                owner.sendSystemMessage(line);
+            }
             setNotified(data, code, now);
             setPending(data, code, false);
             rememberCondition(data, code);
-        } else if (owner == null && due && !pending) {
+        } else if (owners.isEmpty() && due && !pending) {
             setPending(data, code, true);
             rememberCondition(data, code);
         }
@@ -132,13 +135,6 @@ public final class WorkerTicker {
         if (current == ProblemCode.NONE || current == ProblemCode.HUNGRY || current == ProblemCode.HURT) {
             data.setProblem(new WorkerProblem(code, ""));
         }
-    }
-
-    private static ServerPlayer owner(Villager villager, WorkerData data) {
-        if (villager.getServer() == null) {
-            return null;
-        }
-        return villager.getServer().getPlayerList().getPlayer(data.owner());
     }
 
     private static int foodCount(Villager villager) {

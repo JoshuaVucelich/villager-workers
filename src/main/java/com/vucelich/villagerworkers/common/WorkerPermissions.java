@@ -10,7 +10,11 @@ public final class WorkerPermissions {
     private WorkerPermissions() {}
 
     public static WorkerRole role(UUID owner, Set<UUID> trusted, UUID actor) {
-        if (owner != null && owner.equals(actor)) {
+        return role(owner == null ? Set.of() : Set.of(owner), trusted, actor);
+    }
+
+    public static WorkerRole role(Set<UUID> owners, Set<UUID> trusted, UUID actor) {
+        if (actor != null && owners != null && owners.contains(actor)) {
             return WorkerRole.OWNER;
         }
         if (trusted != null && actor != null && trusted.contains(actor)) {
@@ -31,5 +35,9 @@ public final class WorkerPermissions {
 
     public static boolean allows(UUID owner, Set<UUID> trusted, UUID actor, WorkerAction action) {
         return allows(role(owner, trusted, actor), action);
+    }
+
+    public static boolean allows(Set<UUID> owners, Set<UUID> trusted, UUID actor, WorkerAction action) {
+        return allows(role(owners, trusted, actor), action);
     }
 }

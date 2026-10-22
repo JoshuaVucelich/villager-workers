@@ -36,6 +36,10 @@ public final class ModPayloads {
                 WorkerServer.removeTrusted(context.player(), payload));
         registrar.playToServer(TransferOwnerPayload.TYPE, TransferOwnerPayload.STREAM_CODEC, (payload, context) ->
                 WorkerServer.transfer(context.player(), payload));
+        registrar.playToServer(AddOwnerPayload.TYPE, AddOwnerPayload.STREAM_CODEC, (payload, context) ->
+                WorkerServer.addOwner(context.player(), payload));
+        registrar.playToServer(RemoveOwnerPayload.TYPE, RemoveOwnerPayload.STREAM_CODEC, (payload, context) ->
+                WorkerServer.removeOwner(context.player(), payload));
         registrar.playToClient(OpenHireScreenPayload.TYPE, OpenHireScreenPayload.STREAM_CODEC, (payload, context) -> {
             if (FMLEnvironment.dist == Dist.CLIENT) {
                 ClientScreens.openHire(payload.villagerId(), payload.name());
@@ -193,6 +197,32 @@ public final class ModPayloads {
         }
     }
 
+    public record AddOwnerPayload(UUID villagerId, String playerName) implements CustomPacketPayload {
+        public static final Type<AddOwnerPayload> TYPE = ModPayloads.payloadType("add_owner");
+        public static final StreamCodec<RegistryFriendlyByteBuf, AddOwnerPayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, AddOwnerPayload::villagerId,
+                ByteBufCodecs.STRING_UTF8, AddOwnerPayload::playerName,
+                AddOwnerPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record RemoveOwnerPayload(UUID villagerId, UUID ownerId) implements CustomPacketPayload {
+        public static final Type<RemoveOwnerPayload> TYPE = ModPayloads.payloadType("remove_owner");
+        public static final StreamCodec<RegistryFriendlyByteBuf, RemoveOwnerPayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, RemoveOwnerPayload::villagerId,
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, RemoveOwnerPayload::ownerId,
+                RemoveOwnerPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
     public record TransferOwnerPayload(UUID villagerId, UUID newOwner) implements CustomPacketPayload {
         public static final Type<TransferOwnerPayload> TYPE = ModPayloads.payloadType("transfer_owner");
         public static final StreamCodec<RegistryFriendlyByteBuf, TransferOwnerPayload> STREAM_CODEC = StreamCodec.composite(
@@ -228,14 +258,15 @@ public final class ModPayloads {
         }
     }
 
-    public record PermissionsView(String ownerName, List<Person> trusted, List<Person> online) {
+    public record PermissionsView(String ownerName, List<Person> owners, List<Person> trusted, List<Person> online) {
         public static final StreamCodec<RegistryFriendlyByteBuf, PermissionsView> STREAM_CODEC = StreamCodec.of(
                 (buf, view) -> {
                     buf.writeUtf(view.ownerName);
+                    writePeople(buf, view.owners);
                     writePeople(buf, view.trusted);
                     writePeople(buf, view.online);
                 },
-                buf -> new PermissionsView(buf.readUtf(), readPeople(buf), readPeople(buf)));
+                buf -> new PermissionsView(buf.readUtf(), readPeople(buf), readPeople(buf), readPeople(buf)));
 
         private static void writePeople(RegistryFriendlyByteBuf buf, List<Person> people) {
             buf.writeVarInt(people.size());

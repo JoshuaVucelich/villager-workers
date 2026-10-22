@@ -125,9 +125,11 @@ The speed change is applied only by job code (M2), not by M1:
 
 ## Ownership and permissions
 
-The owner is the hiring player. Trusted players are UUIDs the owner adds. A trusted player must be online at the moment they are added; the server resolves the typed name to a UUID and stores the UUID. Removing a trusted player does not require them to be online.
+A worker has one or more owners. Hiring sets the naming player as the only owner. Any owner can add another online player as an owner (up to 8), remove an owner when more than one remains, and transfer sole ownership. The server resolves the typed name to a UUID. Trusted players are UUIDs an owner adds. A trusted player must be online at the moment they are added. Removing a trusted player does not require them to be online.
 
-Only the current owner can add or remove trusted players, and only the current owner can transfer ownership. Transfer requires the new owner to be online in the same dimension. The previous owner loses owner rights immediately and is not added to the trusted set.
+Any owner can add or remove trusted players. Sole transfer requires the new owner to be online in the same dimension. After it succeeds, that player is the only owner. Previous owners lose owner rights immediately and are not added to the trusted set. Every owner can open the screen and run chat commands. Notices go to every owner who is online.
+
+Owner in the table means any player in the owners set.
 
 | Action | Owner | Trusted | Anyone else |
 | --- | --- | --- | --- |

@@ -33,10 +33,12 @@ public final class WorkerData {
             ResourceLocation.CODEC.listOf().optionalFieldOf("break_whitelist", List.of()).forGetter(WorkerData::breakWhitelist),
             WorkerProblem.CODEC.optionalFieldOf("problem", WorkerProblem.NONE).forGetter(WorkerData::problem),
             UUIDUtil.STRING_CODEC.optionalFieldOf("come_target").forGetter(data -> Optional.ofNullable(data.comeTarget())),
-            AlertBookkeeping.CODEC.optionalFieldOf("alerts", AlertBookkeeping.NONE).forGetter(WorkerData::alerts)
+            AlertBookkeeping.CODEC.optionalFieldOf("alerts", AlertBookkeeping.NONE).forGetter(WorkerData::alerts),
+            TrustedPlayer.CODEC.listOf().optionalFieldOf("owners", List.of()).forGetter(WorkerData::persistedOwners)
     ).apply(instance, WorkerData::fromCodec));
 
     private UUID owner;
+    private final List<TrustedPlayer> owners = new ArrayList<>();
     private final List<TrustedPlayer> trusted = new ArrayList<>();
     private WorkerJob job = WorkerJob.NONE;
     private WorkerActivity activity = WorkerActivity.IDLE;
@@ -66,6 +68,9 @@ public final class WorkerData {
     public static WorkerData hire(UUID owner) {
         WorkerData data = new WorkerData();
         data.owner = owner;
+        if (owner != null) {
+            data.owners.add(new TrustedPlayer(owner, ""));
+        }
         data.job = WorkerJob.NONE;
         data.activity = WorkerActivity.IDLE;
         data.rested = false;
@@ -93,10 +98,14 @@ public final class WorkerData {
             List<ResourceLocation> breakWhitelist,
             WorkerProblem problem,
             Optional<UUID> comeTarget,
-            AlertBookkeeping alerts) {
+            AlertBookkeeping alerts,
+            List<TrustedPlayer> owners) {
         WorkerData data = new WorkerData();
         data.owner = owner;
+        data.owners.addAll(owners);
+        data.ensurePrimaryOwner();
         data.trusted.addAll(trusted);
+        data.trusted.removeIf(player -> data.isOwner(player.id()));
         data.job = job;
         data.activity = activity;
         data.rested = rested;
@@ -150,6 +159,107 @@ public final class WorkerData {
 
     public void setOwner(UUID owner) {
         this.owner = owner;
+        ensurePrimaryOwner();
+    }
+
+    public List<TrustedPlayer> owners() {
+        List<TrustedPlayer> copy = new ArrayList<>(owners.size() + 1);
+        boolean sawPrimary = false;
+        for (TrustedPlayer player : owners) {
+            if (player.id().equals(owner)) {
+                sawPrimary = true;
+            }
+            copy.add(player);
+        }
+        if (!sawPrimary && owner != null) {
+            copy.add(0, new TrustedPlayer(owner, ""));
+        }
+        return List.copyOf(copy);
+    }
+
+    public Set<UUID> ownerIds() {
+        Set<UUID> ids = new LinkedHashSet<>();
+        for (TrustedPlayer player : owners()) {
+            ids.add(player.id());
+        }
+        return ids;
+    }
+
+    public boolean isOwner(UUID id) {
+        return id != null && ownerIds().contains(id);
+    }
+
+    public int ownerCount() {
+        return ownerIds().size();
+    }
+
+    /**
+     * Adds another owner. The primary owner field stays put. A player who was trusted becomes an owner instead.
+     */
+    public boolean addOwner(TrustedPlayer player) {
+        if (player == null || player.id() == null || isOwner(player.id())) {
+            return false;
+        }
+        if (ownerCount() >= SetupLimits.MAX_OWNERS) {
+            return false;
+        }
+        removeTrusted(player.id());
+        owners.add(player);
+        return true;
+    }
+
+    /** Drops one owner. The last owner cannot be removed. */
+    public boolean removeOwner(UUID id) {
+        if (!isOwner(id) || ownerCount() <= 1) {
+            return false;
+        }
+        owners.removeIf(player -> player.id().equals(id));
+        if (id.equals(owner)) {
+            owner = owners.get(0).id();
+        }
+        return true;
+    }
+
+    /**
+     * Leaves exactly one owner. Previous owners are not added to the trusted set.
+     */
+    public void transferSole(TrustedPlayer player) {
+        if (player == null || player.id() == null) {
+            return;
+        }
+        owner = player.id();
+        owners.clear();
+        owners.add(player);
+        removeTrusted(player.id());
+    }
+
+    public void rememberOwnerName(UUID id, String name) {
+        if (id == null || name == null || name.isBlank()) {
+            return;
+        }
+        for (int i = 0; i < owners.size(); i++) {
+            TrustedPlayer player = owners.get(i);
+            if (player.id().equals(id)) {
+                owners.set(i, new TrustedPlayer(id, name));
+                return;
+            }
+        }
+    }
+
+    private List<TrustedPlayer> persistedOwners() {
+        return owners();
+    }
+
+    private void ensurePrimaryOwner() {
+        if (owner == null) {
+            return;
+        }
+        for (TrustedPlayer player : owners) {
+            if (player.id().equals(owner)) {
+                return;
+            }
+        }
+        owners.add(0, new TrustedPlayer(owner, ""));
     }
 
     public List<TrustedPlayer> trusted() {
@@ -165,7 +275,7 @@ public final class WorkerData {
     }
 
     public boolean addTrusted(TrustedPlayer player) {
-        if (player == null || player.id().equals(owner) || trustedIds().contains(player.id())) {
+        if (player == null || isOwner(player.id()) || trustedIds().contains(player.id())) {
             return false;
         }
         if (trusted.size() >= SetupLimits.MAX_TRUSTED) {
