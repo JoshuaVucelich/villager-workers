@@ -1,11 +1,13 @@
 package com.vucelich.villagerworkers.neoforge;
 
+import com.vucelich.villagerworkers.common.SetupLimits;
 import com.vucelich.villagerworkers.common.VillagerWorkers;
 import com.vucelich.villagerworkers.neoforge.client.ClientScreens;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -53,6 +55,27 @@ public final class ModPayloads {
         registrar.playToClient(PermissionsSnapshotPayload.TYPE, PermissionsSnapshotPayload.STREAM_CODEC, (payload, context) -> {
             if (FMLEnvironment.dist == Dist.CLIENT) {
                 ClientScreens.applyPermissions(payload.view());
+            }
+        });
+        registrar.playToServer(AssignCrewPayload.TYPE, AssignCrewPayload.STREAM_CODEC, (payload, context) ->
+                CrewService.assign(serverPlayer(context.player()), payload.workerId(), payload.foremanId()));
+        registrar.playToServer(UnassignCrewPayload.TYPE, UnassignCrewPayload.STREAM_CODEC, (payload, context) ->
+                CrewService.unassign(serverPlayer(context.player()), payload.workerId()));
+        registrar.playToServer(MoveCrewPayload.TYPE, MoveCrewPayload.STREAM_CODEC, (payload, context) -> {
+            ServerPlayer player = serverPlayer(context.player());
+            if (payload.toPlayer()) {
+                CrewService.giveToPlayer(player, payload.workerId(), payload.playerName());
+            } else {
+                CrewService.move(player, payload.workerId(), payload.foremanId(), false, null);
+            }
+        });
+        registrar.playToServer(CrewOrderPayload.TYPE, CrewOrderPayload.STREAM_CODEC, (payload, context) ->
+                CrewService.order(serverPlayer(context.player()), payload.foremanId(), payload.targetId(), payload.ticked(), payload.orderId()));
+        registrar.playToServer(SetOverridePayload.TYPE, SetOverridePayload.STREAM_CODEC, (payload, context) ->
+                CrewService.setOverride(serverPlayer(context.player()), payload.workerId(), payload.override()));
+        registrar.playToClient(CrewSnapshotPayload.TYPE, CrewSnapshotPayload.STREAM_CODEC, (payload, context) -> {
+            if (FMLEnvironment.dist == Dist.CLIENT) {
+                ClientScreens.applyCrew(payload.view());
             }
         });
     }
@@ -287,6 +310,156 @@ public final class ModPayloads {
     }
 
     public record Person(UUID id, String name) {}
+
+    public record AssignCrewPayload(UUID workerId, UUID foremanId) implements CustomPacketPayload {
+        public static final Type<AssignCrewPayload> TYPE = ModPayloads.payloadType("assign_crew");
+        public static final StreamCodec<RegistryFriendlyByteBuf, AssignCrewPayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, AssignCrewPayload::workerId,
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, AssignCrewPayload::foremanId,
+                AssignCrewPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record UnassignCrewPayload(UUID workerId) implements CustomPacketPayload {
+        public static final Type<UnassignCrewPayload> TYPE = ModPayloads.payloadType("unassign_crew");
+        public static final StreamCodec<RegistryFriendlyByteBuf, UnassignCrewPayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, UnassignCrewPayload::workerId,
+                UnassignCrewPayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record MoveCrewPayload(UUID workerId, UUID foremanId, boolean toPlayer, String playerName) implements CustomPacketPayload {
+        public static final Type<MoveCrewPayload> TYPE = ModPayloads.payloadType("move_crew");
+        public static final StreamCodec<RegistryFriendlyByteBuf, MoveCrewPayload> STREAM_CODEC = StreamCodec.of(
+                (buf, payload) -> {
+                    buf.writeUUID(payload.workerId);
+                    buf.writeUUID(payload.foremanId);
+                    buf.writeBoolean(payload.toPlayer);
+                    buf.writeUtf(payload.playerName);
+                },
+                buf -> new MoveCrewPayload(buf.readUUID(), buf.readUUID(), buf.readBoolean(), buf.readUtf()));
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record CrewOrderPayload(UUID foremanId, String targetId, List<UUID> ticked, String orderId) implements CustomPacketPayload {
+        public static final Type<CrewOrderPayload> TYPE = ModPayloads.payloadType("crew_order");
+        public static final StreamCodec<RegistryFriendlyByteBuf, CrewOrderPayload> STREAM_CODEC = StreamCodec.of(
+                (buf, payload) -> {
+                    buf.writeUUID(payload.foremanId);
+                    buf.writeUtf(payload.targetId);
+                    buf.writeVarInt(payload.ticked.size());
+                    for (UUID id : payload.ticked) {
+                        buf.writeUUID(id);
+                    }
+                    buf.writeUtf(payload.orderId);
+                },
+                buf -> {
+                    UUID foremanId = buf.readUUID();
+                    String targetId = buf.readUtf();
+                    int size = buf.readVarInt();
+                    if (size < 0 || size > SetupLimits.MAX_CREW + 1) {
+                        throw new io.netty.handler.codec.DecoderException("crew tick list");
+                    }
+                    List<UUID> ticked = new ArrayList<>(size);
+                    for (int i = 0; i < size; i++) {
+                        ticked.add(buf.readUUID());
+                    }
+                    return new CrewOrderPayload(foremanId, targetId, List.copyOf(ticked), buf.readUtf());
+                });
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record SetOverridePayload(UUID workerId, boolean override) implements CustomPacketPayload {
+        public static final Type<SetOverridePayload> TYPE = ModPayloads.payloadType("set_override");
+        public static final StreamCodec<RegistryFriendlyByteBuf, SetOverridePayload> STREAM_CODEC = StreamCodec.composite(
+                net.minecraft.core.UUIDUtil.STREAM_CODEC, SetOverridePayload::workerId,
+                ByteBufCodecs.BOOL, SetOverridePayload::override,
+                SetOverridePayload::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record CrewSnapshotPayload(CrewView view) implements CustomPacketPayload {
+        public static final Type<CrewSnapshotPayload> TYPE = ModPayloads.payloadType("crew_snapshot");
+        public static final StreamCodec<RegistryFriendlyByteBuf, CrewSnapshotPayload> STREAM_CODEC =
+                CrewView.STREAM_CODEC.map(CrewSnapshotPayload::new, CrewSnapshotPayload::view);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record CrewView(
+            UUID villagerId,
+            boolean foreman,
+            boolean overrideForeman,
+            String assignedName,
+            List<Person> foremen,
+            List<Person> unassigned,
+            List<Person> crew) {
+        public static final StreamCodec<RegistryFriendlyByteBuf, CrewView> STREAM_CODEC = StreamCodec.of(
+                (buf, view) -> {
+                    buf.writeUUID(view.villagerId);
+                    buf.writeBoolean(view.foreman);
+                    buf.writeBoolean(view.overrideForeman);
+                    buf.writeUtf(view.assignedName);
+                    writePeople(buf, view.foremen);
+                    writePeople(buf, view.unassigned);
+                    writePeople(buf, view.crew);
+                },
+                buf -> new CrewView(
+                        buf.readUUID(),
+                        buf.readBoolean(),
+                        buf.readBoolean(),
+                        buf.readUtf(),
+                        readPeople(buf),
+                        readPeople(buf),
+                        readPeople(buf)));
+
+        private static void writePeople(RegistryFriendlyByteBuf buf, List<Person> people) {
+            buf.writeVarInt(people.size());
+            for (Person person : people) {
+                buf.writeUUID(person.id());
+                buf.writeUtf(person.name());
+            }
+        }
+
+        private static List<Person> readPeople(RegistryFriendlyByteBuf buf) {
+            int size = buf.readVarInt();
+            if (size < 0 || size > 32) {
+                throw new io.netty.handler.codec.DecoderException("crew list");
+            }
+            List<Person> people = new ArrayList<>(size);
+            for (int i = 0; i < size; i++) {
+                people.add(new Person(buf.readUUID(), buf.readUtf()));
+            }
+            return List.copyOf(people);
+        }
+    }
+
+    private static ServerPlayer serverPlayer(net.minecraft.world.entity.player.Player player) {
+        return (ServerPlayer) player;
+    }
 
     private static <T extends CustomPacketPayload> CustomPacketPayload.Type<T> payloadType(String path) {
         return new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(VillagerWorkers.MOD_ID, path));

@@ -230,16 +230,14 @@ public final class WorkerServer {
             case MenuIds.LINK_MINER_TOOL -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.MINER_TOOL);
             case MenuIds.LINK_SCHEMATIC -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.SCHEMATIC);
             case MenuIds.LINK_MATERIAL -> SetupSessions.armLink(serverPlayer, villager, LinkTarget.MATERIAL);
-            case MenuIds.PROMOTE -> {
-                data.setForeman(true);
-                WorkerLooks.refresh(villager, data);
-            }
-            case MenuIds.DEMOTE -> {
-                data.setForeman(false);
-                WorkerLooks.refresh(villager, data);
-            }
+            case MenuIds.PROMOTE -> CrewService.promote(serverPlayer, villager, data);
+            case MenuIds.DEMOTE -> CrewService.demote(villager, data);
             case MenuIds.SHOW_PERMISSIONS -> {
                 sendPermissions(serverPlayer, villager, data);
+                return true;
+            }
+            case MenuIds.SHOW_CREW -> {
+                CrewService.send(serverPlayer, villager, data);
                 return true;
             }
             default -> {

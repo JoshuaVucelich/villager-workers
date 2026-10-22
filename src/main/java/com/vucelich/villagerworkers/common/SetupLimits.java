@@ -22,6 +22,7 @@ public final class SetupLimits {
     public static final int MAX_MATERIAL_CHESTS = 8;
     public static final int MAX_TRUSTED = 16;
     public static final int MAX_OWNERS = 8;
+    public static final int MAX_CREW = 16;
 
     private SetupLimits() {}
 

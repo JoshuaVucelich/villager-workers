@@ -29,6 +29,8 @@ Unhired villagers are unchanged.
 
 A hired villager wears a hard hat drawn by the client. The hat is not an item, so it cannot be taken and it does not drop. Promote to Foreman changes the hat color, draws a clipboard in the hands, and draws a rolled blueprint under one arm. Demote removes those props. The label `Foreman <name> (N crew)` is drawn only when the client config `showForemanLabels` is true. That drawing does not run on ship ticks.
 
+The Crew button lists the player's foremen. Joining one assigns that worker, up to 16 per foreman. A foreman's Crew screen lists unassigned workers and the current crew. Each member can be unassigned, moved to another foreman, given to an online player in the same dimension, or called over. Work, Stay, Follow, and the job buttons on that screen apply to the foreman only, the whole crew, or the ticked members. The foreman's job and setup apply to the crew during work. A worker keeps their own job and setup while the override toggle is on. Crew lists are built when the screen is opened. They are not scanned on a ship tick.
+
 ## Hiring
 
 1. A player uses a name tag on an adult villager. Vanilla consumes the tag and sets the custom name.

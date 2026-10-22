@@ -59,6 +59,15 @@ public final class WorkerData {
     private boolean hurtPending;
     private boolean foreman;
     private int crewSize;
+    private UUID crewForeman;
+    private boolean overrideForeman;
+    private final List<UUID> crewMembers = new ArrayList<>();
+    private boolean rulesPushed;
+    private WorkerJob savedJob;
+    private LumberjackConfig savedLumberjack;
+    private MinerConfig savedMiner;
+    private BuilderConfig savedBuilder;
+    private List<ResourceLocation> savedWhitelist;
 
     /** Not saved. Used to notice the villager waking up. */
     private boolean sleepTracked;
@@ -129,12 +138,25 @@ public final class WorkerData {
         data.hurtPending = alerts.hurtPending();
         data.foreman = alerts.foreman();
         data.crewSize = alerts.crewSize();
+        data.crewForeman = alerts.crewForeman().orElse(null);
+        data.overrideForeman = alerts.overrideForeman();
+        data.crewMembers.addAll(alerts.crewMembers());
+        data.crewSize = Math.max(data.crewSize, data.crewMembers.size());
         return data;
     }
 
     private AlertBookkeeping alerts() {
         return new AlertBookkeeping(
-                hungryNotifiedAt, hurtNotifiedAt, hungryPending, hurtPending, List.copyOf(notices), foreman, crewSize);
+                hungryNotifiedAt,
+                hurtNotifiedAt,
+                hungryPending,
+                hurtPending,
+                List.copyOf(notices),
+                foreman,
+                Math.max(crewSize, crewMembers.size()),
+                Optional.ofNullable(crewForeman),
+                overrideForeman,
+                List.copyOf(crewMembers));
     }
 
     /**
@@ -147,9 +169,12 @@ public final class WorkerData {
             boolean hurtPending,
             List<WorkNotice> notices,
             boolean foreman,
-            int crewSize) {
+            int crewSize,
+            Optional<UUID> crewForeman,
+            boolean overrideForeman,
+            List<UUID> crewMembers) {
         public static final AlertBookkeeping NONE =
-                new AlertBookkeeping(Long.MIN_VALUE, Long.MIN_VALUE, false, false, List.of(), false, 0);
+                new AlertBookkeeping(Long.MIN_VALUE, Long.MIN_VALUE, false, false, List.of(), false, 0, Optional.empty(), false, List.of());
 
         public static final Codec<AlertBookkeeping> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.LONG.optionalFieldOf("hungry_notified_at", Long.MIN_VALUE).forGetter(AlertBookkeeping::hungryNotifiedAt),
@@ -158,7 +183,10 @@ public final class WorkerData {
                 Codec.BOOL.optionalFieldOf("hurt_pending", false).forGetter(AlertBookkeeping::hurtPending),
                 WorkNotice.CODEC.listOf().optionalFieldOf("notices", List.of()).forGetter(AlertBookkeeping::notices),
                 Codec.BOOL.optionalFieldOf("foreman", false).forGetter(AlertBookkeeping::foreman),
-                Codec.INT.optionalFieldOf("crew_size", 0).forGetter(AlertBookkeeping::crewSize)
+                Codec.INT.optionalFieldOf("crew_size", 0).forGetter(AlertBookkeeping::crewSize),
+                UUIDUtil.STRING_CODEC.optionalFieldOf("crew_foreman").forGetter(AlertBookkeeping::crewForeman),
+                Codec.BOOL.optionalFieldOf("override_foreman", false).forGetter(AlertBookkeeping::overrideForeman),
+                UUIDUtil.STRING_CODEC.listOf().optionalFieldOf("crew_members", List.of()).forGetter(AlertBookkeeping::crewMembers)
         ).apply(instance, AlertBookkeeping::new));
     }
 
@@ -493,6 +521,78 @@ public final class WorkerData {
 
     public void setCrewSize(int crewSize) {
         this.crewSize = Math.max(0, crewSize);
+    }
+
+    public UUID crewForeman() {
+        return crewForeman;
+    }
+
+    public void setCrewForeman(UUID crewForeman) {
+        this.crewForeman = crewForeman;
+    }
+
+    public boolean overrideForeman() {
+        return overrideForeman;
+    }
+
+    public void setOverrideForeman(boolean overrideForeman) {
+        this.overrideForeman = overrideForeman;
+    }
+
+    public List<UUID> crewMembers() {
+        return List.copyOf(crewMembers);
+    }
+
+    public boolean addCrewMember(UUID id) {
+        if (id == null || crewMembers.contains(id)) {
+            return false;
+        }
+        if (crewMembers.size() >= SetupLimits.MAX_CREW) {
+            return false;
+        }
+        crewMembers.add(id);
+        crewSize = crewMembers.size();
+        return true;
+    }
+
+    public boolean removeCrewMember(UUID id) {
+        boolean removed = crewMembers.remove(id);
+        crewSize = crewMembers.size();
+        return removed;
+    }
+
+    public void pushRules(CrewRules.View view) {
+        if (view == null) {
+            return;
+        }
+        if (rulesPushed) {
+            popRules();
+        }
+        savedJob = job;
+        savedLumberjack = lumberjack;
+        savedMiner = miner;
+        savedBuilder = builder;
+        savedWhitelist = new ArrayList<>(breakWhitelist);
+        job = view.job();
+        lumberjack = view.lumberjack();
+        miner = view.miner();
+        builder = view.builder();
+        breakWhitelist.clear();
+        breakWhitelist.addAll(view.whitelist());
+        rulesPushed = true;
+    }
+
+    public void popRules() {
+        if (!rulesPushed) {
+            return;
+        }
+        job = savedJob;
+        lumberjack = savedLumberjack;
+        miner = savedMiner;
+        builder = savedBuilder;
+        breakWhitelist.clear();
+        breakWhitelist.addAll(savedWhitelist);
+        rulesPushed = false;
     }
 
     public boolean sleepTracked() {

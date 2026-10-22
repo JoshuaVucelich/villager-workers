@@ -22,4 +22,10 @@ public final class ClientScreens {
             screen.applyPermissions(view);
         }
     }
+
+    public static void applyCrew(ModPayloads.CrewView view) {
+        if (Minecraft.getInstance().screen instanceof WorkerScreen screen) {
+            screen.applyCrew(view);
+        }
+    }
 }

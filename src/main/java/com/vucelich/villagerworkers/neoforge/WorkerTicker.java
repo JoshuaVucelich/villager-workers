@@ -44,7 +44,12 @@ public final class WorkerTicker {
             alert(villager, data, ProblemCode.HURT, hurt(villager));
             OwnerNotices.flushPending(villager, data);
         }
-        JobRunner.tick(villager, data);
+        CrewService.bindRules(villager, data);
+        try {
+            JobRunner.tick(villager, data);
+        } finally {
+            data.popRules();
+        }
     }
 
     public static boolean hungry(Villager villager) {

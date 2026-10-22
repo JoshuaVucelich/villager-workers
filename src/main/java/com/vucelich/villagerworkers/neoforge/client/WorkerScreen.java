@@ -5,8 +5,10 @@ import com.vucelich.villagerworkers.neoforge.ModPayloads;
 import com.vucelich.villagerworkers.neoforge.WorkerMenu;
 import com.vucelich.villagerworkers.neoforge.WorkerView;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -18,7 +20,12 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     private boolean permissions;
+    private boolean crew;
     private ModPayloads.PermissionsView permissionsView;
+    private ModPayloads.CrewView crewView;
+    private final Set<UUID> ticked = new HashSet<>();
+    private String crewTarget = "FOREMAN";
+    private EditBox moveBox;
     private EditBox widthBox;
     private EditBox heightBox;
     private EditBox lengthBox;
@@ -43,18 +50,38 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
     public void applySnapshot(WorkerView view) {
         this.menu.setView(view);
         this.permissions = false;
+        this.crew = false;
         rebuildWidgets();
     }
 
     public void applyPermissions(ModPayloads.PermissionsView view) {
         this.permissionsView = view;
         this.permissions = true;
+        this.crew = false;
+        rebuildWidgets();
+    }
+
+    public void applyCrew(ModPayloads.CrewView view) {
+        this.crewView = view;
+        this.crew = true;
+        this.permissions = false;
+        Set<UUID> still = new HashSet<>();
+        still.add(view.villagerId());
+        for (ModPayloads.Person person : view.crew()) {
+            still.add(person.id());
+        }
+        this.ticked.retainAll(still);
         rebuildWidgets();
     }
 
     @Override
     protected void init() {
+        this.imageHeight = crew ? 400 : 292;
         super.init();
+        if (crew) {
+            initCrew();
+            return;
+        }
         WorkerView view = this.menu.view();
         int x = this.leftPos + 8;
         int y = this.topPos + 62;
@@ -78,6 +105,7 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
 
     private void initWork(WorkerView view, int x, int y) {
         addRenderableWidget(button(view.foreman() ? "Demote" : "Promote to Foreman", x, y, 150, view.foreman() ? MenuIds.DEMOTE : MenuIds.PROMOTE));
+        addRenderableWidget(button("Crew", x + 154, y, 60, MenuIds.SHOW_CREW));
         y += 24;
         switch (view.job()) {
             case "lumberjack" -> initLumberjack(view, x, y);
@@ -272,7 +300,172 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
         return box;
     }
 
+    private void initCrew() {
+        WorkerView view = this.menu.view();
+        int x = this.leftPos + 8;
+        int y = this.topPos + 58;
+        addRenderableWidget(button("Work", x, y, 60, MenuIds.SHOW_CREW));
+        ModPayloads.CrewView snapshot = this.crewView;
+        if (snapshot == null) {
+            return;
+        }
+        if (!snapshot.foreman()) {
+            addRenderableWidget(Button.builder(Component.literal(snapshot.overrideForeman() ? "Own rules" : "Foreman rules"), ignored ->
+                            PacketDistributor.sendToServer(new ModPayloads.SetOverridePayload(view.villagerId(), !snapshot.overrideForeman())))
+                    .bounds(x + 64, y, 120, 20)
+                    .build());
+            if (!"none".equals(snapshot.assignedName())) {
+                addRenderableWidget(button("Leave crew", x + 188, y, 80, -2));
+            }
+            y += 24;
+            int shown = 0;
+            for (ModPayloads.Person person : snapshot.foremen()) {
+                if (shown >= 8) {
+                    break;
+                }
+                UUID id = person.id();
+                addRenderableWidget(Button.builder(Component.literal("Join " + person.name()), ignored ->
+                                PacketDistributor.sendToServer(new ModPayloads.AssignCrewPayload(view.villagerId(), id)))
+                        .bounds(x, y, 260, 20)
+                        .build());
+                y += 22;
+                shown++;
+            }
+            return;
+        }
+        addRenderableWidget(Button.builder(Component.literal("Apply to: " + targetLabel()), ignored -> {
+            crewTarget = switch (crewTarget) {
+                case "FOREMAN" -> "CREW";
+                case "CREW" -> "TICKED";
+                default -> "FOREMAN";
+            };
+            rebuildWidgets();
+        }).bounds(x + 64, y, 160, 20).build());
+        y += 24;
+        addRenderableWidget(orderButton("Work", x, y, 60, "WORK"));
+        addRenderableWidget(orderButton("Stay", x + 64, y, 60, "STAY"));
+        addRenderableWidget(orderButton("Follow", x + 128, y, 70, "FOLLOW"));
+        y += 24;
+        addRenderableWidget(orderButton("No job", x, y, 60, "JOB_NONE"));
+        addRenderableWidget(orderButton("Lumberjack", x + 64, y, 80, "JOB_LUMBERJACK"));
+        addRenderableWidget(orderButton("Miner", x + 148, y, 50, "JOB_MINER"));
+        addRenderableWidget(orderButton("Builder", x + 202, y, 66, "JOB_BUILDER"));
+        y += 24;
+        moveBox = box(x, y, 110, moveBox == null ? "" : moveBox.getValue());
+        moveBox.setHint(Component.literal("Foreman or player"));
+        addRenderableWidget(moveBox);
+        addRenderableWidget(Button.builder(Component.literal("Move ticked"), ignored -> moveTicked(false))
+                .bounds(x + 114, y, 90, 20)
+                .build());
+        addRenderableWidget(Button.builder(Component.literal("Give"), ignored -> moveTicked(true))
+                .bounds(x + 208, y, 50, 20)
+                .build());
+        y += 24;
+        int shown = 0;
+        for (ModPayloads.Person person : snapshot.unassigned()) {
+            if (shown >= 4) {
+                break;
+            }
+            UUID id = person.id();
+            addRenderableWidget(Button.builder(Component.literal("Add " + person.name()), ignored ->
+                            PacketDistributor.sendToServer(new ModPayloads.AssignCrewPayload(id, view.villagerId())))
+                    .bounds(x, y, 260, 20)
+                    .build());
+            y += 22;
+            shown++;
+        }
+        int crewShown = 0;
+        for (ModPayloads.Person person : snapshot.crew()) {
+            if (crewShown >= 8) {
+                break;
+            }
+            UUID id = person.id();
+            boolean on = ticked.contains(id);
+            addRenderableWidget(Button.builder(Component.literal((on ? "[x] " : "[ ] ") + person.name()), ignored -> {
+                if (!ticked.add(id)) {
+                    ticked.remove(id);
+                }
+                rebuildWidgets();
+            }).bounds(x, y, 130, 20).build());
+            addRenderableWidget(Button.builder(Component.literal("Unassign"), ignored ->
+                            PacketDistributor.sendToServer(new ModPayloads.UnassignCrewPayload(id)))
+                    .bounds(x + 134, y, 70, 20)
+                    .build());
+            addRenderableWidget(Button.builder(Component.literal("Come"), ignored ->
+                            PacketDistributor.sendToServer(new ModPayloads.CrewOrderPayload(view.villagerId(), "TICKED", List.of(id), "FOLLOW")))
+                    .bounds(x + 208, y, 50, 20)
+                    .build());
+            y += 22;
+            crewShown++;
+        }
+    }
+
+    private Button orderButton(String label, int x, int y, int width, String order) {
+        return Button.builder(Component.literal(label), ignored -> sendOrder(order))
+                .bounds(x, y, width, 20)
+                .build();
+    }
+
+    private void sendOrder(String order) {
+        PacketDistributor.sendToServer(new ModPayloads.CrewOrderPayload(
+                menu.view().villagerId(), crewTarget, List.copyOf(ticked), order));
+    }
+
+    private void moveTicked(boolean toPlayer) {
+        if (ticked.isEmpty()) {
+            note("Tick a crew member first.");
+            return;
+        }
+        String typed = moveBox == null ? "" : moveBox.getValue().trim();
+        if (typed.isEmpty()) {
+            note(toPlayer ? "Type the player name." : "Type the foreman name.");
+            return;
+        }
+        UUID foremanId = new UUID(0L, 0L);
+        if (!toPlayer) {
+            foremanId = null;
+            if (crewView != null) {
+                for (ModPayloads.Person person : crewView.foremen()) {
+                    if (person.name().equalsIgnoreCase(typed) && !person.id().equals(menu.view().villagerId())) {
+                        foremanId = person.id();
+                        break;
+                    }
+                }
+            }
+            if (foremanId == null) {
+                note("That foreman is not in the list.");
+                return;
+            }
+        }
+        for (UUID id : List.copyOf(ticked)) {
+            PacketDistributor.sendToServer(new ModPayloads.MoveCrewPayload(id, foremanId, toPlayer, typed));
+        }
+    }
+
+    private void note(String text) {
+        if (this.minecraft != null && this.minecraft.player != null) {
+            this.minecraft.player.displayClientMessage(Component.literal(text), true);
+        }
+    }
+
+    private String targetLabel() {
+        return switch (crewTarget) {
+            case "CREW" -> "whole crew";
+            case "TICKED" -> "ticked";
+            default -> "foreman";
+        };
+    }
+
     private void click(int id) {
+        if (id == -2) {
+            PacketDistributor.sendToServer(new ModPayloads.UnassignCrewPayload(menu.view().villagerId()));
+            return;
+        }
+        if (id == MenuIds.SHOW_CREW && crew) {
+            crew = false;
+            rebuildWidgets();
+            return;
+        }
         if (id == MenuIds.SHOW_PERMISSIONS && permissions) {
             permissions = false;
             rebuildWidgets();
@@ -328,6 +521,13 @@ public class WorkerScreen extends AbstractContainerScreen<WorkerMenu> {
                 + "  " + view.activity()
                 + "  " + (view.rested() ? "rested" : "not rested"), 8, 18, 0xDDDDDD, false);
         graphics.drawString(this.font, "Job " + view.job() + "  " + view.problem(), 8, 30, 0xDDDDDD, false);
+        if (crew && crewView != null) {
+            String line = crewView.foreman()
+                    ? "Crew " + crewView.crew().size() + "  unassigned " + crewView.unassigned().size()
+                    : "Assigned: " + crewView.assignedName();
+            graphics.drawString(this.font, line, 8, 46, 0xFFD27A, false);
+            return;
+        }
         if (permissions && view.viewerIsOwner()) {
             String owner = permissionsView == null ? "..." : permissionsView.ownerName();
             graphics.drawString(this.font, "Owners: " + owner, 8, 46, 0xFFD27A, false);
